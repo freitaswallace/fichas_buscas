@@ -649,8 +649,8 @@ function Toggle-Theme {
         }
     }
     catch {
-        # Se qualquer linha acima falhar, este pop-up será exibido.
-        Show-Popup -Icon "❌" -Message "Erro ao trocar tema: $($_.Exception.Message)" -Type "Error"
+        # Se qualquer linha acima falhar, loga o erro mas não mostra popup durante inicialização
+        Write-Warning "Erro ao trocar tema: $($_.Exception.Message)"
     }
 }
 # --- FIM DA FUNÇÃO DE TEMA ---
@@ -1084,8 +1084,10 @@ $window.Add_Closed({
     }
 })
 
-# Iniciar tema padrão
-Toggle-Theme -IsDark $false
+# Inicializar tema após a janela carregar
+$window.Add_Loaded({
+    Toggle-Theme -IsDark $false
+})
 
 # Mostrar janela
 $window.ShowDialog() | Out-Null
