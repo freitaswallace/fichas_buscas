@@ -12,7 +12,7 @@ $script:GhostscriptExePath = "C:\Program Files\gs\gs10.06.0\bin\gswin64c.exe"  #
 
 # Configurações globais
 $script:CaminhoBase = "\\192.168.20.100\TRABALHO\TRANSITO\FICHAS INDISPONIBILIDADE NOVAS RENOMEADAS"
-$script:PastaIgnorar = "\\192.168.20.100\TRABALHO\TRANSITO\FICHAS INDISPONIBILIDADE NOVAS RENOMEADAS\INDICADOR REAL"
+$script:PastaIgnorar = ""  # Desabilitado - busca em todas as pastas
 $script:PastaTemporaria = $null
 $script:ArquivosEncontrados = @()
 $script:BuscaEmAndamento = $false
@@ -985,10 +985,11 @@ $btnPesquisar.Add_Click({
         try {
             function Search-FilesNet {
                 param([string]$Pasta)
-                
+
                 $pastaNormalizada = $Pasta.TrimEnd('\').ToUpper()
-                
-                if ($pastaNormalizada.Contains($pastasParaIgnorar)) {
+
+                # Só ignora pasta se $pastasParaIgnorar não estiver vazio
+                if (-not [string]::IsNullOrWhiteSpace($pastasParaIgnorar) -and $pastaNormalizada.Contains($pastasParaIgnorar)) {
                     Write-Log-Local "IGNORADO: $Pasta"
                     return
                 }
