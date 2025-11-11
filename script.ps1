@@ -705,6 +705,16 @@ function Show-Popup {
     $storyboard.Children.Add($scaleXAnimation)
     $storyboard.Children.Add($scaleYAnimation)
     $storyboard.Begin()
+
+    # Timer para fechar automaticamente após 3 segundos
+    $autoCloseTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $autoCloseTimer.Interval = [TimeSpan]::FromSeconds(3)
+    $autoCloseTimer.Add_Tick({
+        Write-Host "Timer de auto-close disparado - fechando popup automaticamente"
+        Hide-Popup
+        $autoCloseTimer.Stop()
+    })
+    $autoCloseTimer.Start()
 }
 # --- FIM DA FUNÇÃO SHOW-POPUP ---
 
