@@ -19,6 +19,7 @@ $script:BuscaEmAndamento = $false
 $script:TemaAtual = "Light"
 $script:job = $null # Variavel para armazenar o Job
 $script:timer = $null # Variavel para o timer
+$script:FileCountFile = $null # Arquivo temporário para compartilhar contagem com o job
 
 # Funções Auxiliares (Escopo Global)
 function Remove-Acentos {
@@ -460,16 +461,25 @@ function Generate-PdfPreviewImage {
             </Border>
             
             <Border Name="loadingOverlay" Grid.RowSpan="2" Background="#80000000" Visibility="Collapsed">
-                <Border Name="LoadingContent" Background="White" CornerRadius="20" Width="300" Height="150" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Border Name="LoadingContent" Background="White" CornerRadius="20" Width="400" Height="200" HorizontalAlignment="Center" VerticalAlignment="Center">
                     <Grid>
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Name="LoadingIcon" Text="⏳" FontSize="40" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        <TextBlock Grid.Row="1" Name="lblLoading" Text="Processando..." FontSize="16" Foreground="Black" HorizontalAlignment="Center" Margin="0,5"/>
-                        <ProgressBar Grid.Row="2" IsIndeterminate="True" Height="5" Margin="30,10,30,20"/>
+
+                        <!-- Botão X para fechar (visível apenas quando concluído) -->
+                        <Button Grid.Row="0" Name="btnCloseLoading" Content="✕" Width="30" Height="30"
+                                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-10,-10,0"
+                                Background="Transparent" Foreground="#666666" BorderThickness="0"
+                                FontSize="20" Cursor="Hand" Visibility="Collapsed"/>
+
+                        <TextBlock Grid.Row="1" Name="LoadingIcon" Text="⏳" FontSize="40" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Row="2" Name="lblLoading" Text="Processando..." FontSize="16" Foreground="Black" HorizontalAlignment="Center" Margin="0,10"/>
+                        <TextBlock Grid.Row="2" Name="lblFileCount" Text="" FontSize="14" Foreground="#666666" HorizontalAlignment="Center" Margin="0,35,0,0"/>
+                        <ProgressBar Grid.Row="3" Name="progressLoading" IsIndeterminate="True" Height="5" Margin="30,10,30,20"/>
                     </Grid>
                 </Border>
             </Border>
@@ -499,6 +509,10 @@ $progressPreview = $window.FindName("progressPreview")
 $loadingOverlay = $window.FindName("loadingOverlay")
 $loadingContent = $window.FindName("LoadingContent")
 $lblLoading = $window.FindName("lblLoading")
+$lblFileCount = $window.FindName("lblFileCount")
+$progressLoading = $window.FindName("progressLoading")
+$btnCloseLoading = $window.FindName("btnCloseLoading")
+$loadingIcon = $window.FindName("LoadingIcon")
 $scrollPreview = $window.FindName("scrollPreview")
 $searchCard = $window.FindName("SearchCard")
 $searchTitle = $window.FindName("SearchTitle")
@@ -750,6 +764,25 @@ $popupButton.Add_Click({
     Hide-Popup
 })
 
+# Permitir fechar o loading clicando no botão X
+$btnCloseLoading.Add_Click({
+    Write-Host "Botão X do loading clicado"
+    if ($btnCloseLoading.Visibility -eq 'Visible') {
+        $loadingOverlay.Visibility = 'Collapsed'
+    }
+})
+
+# Permitir fechar o loading clicando no overlay escuro (apenas quando concluído)
+$loadingOverlay.Add_MouseLeftButtonDown({
+    param($sender, $e)
+    # Verifica se o clique foi no overlay (fundo escuro) e não no conteúdo
+    # E só permite fechar se o botão X estiver visível (ou seja, busca concluída)
+    if ($e.Source -eq $loadingOverlay -and $btnCloseLoading.Visibility -eq 'Visible') {
+        Write-Host "Overlay do loading clicado - fechando"
+        $loadingOverlay.Visibility = 'Collapsed'
+    }
+})
+
 # Permitir fechar o popup clicando no overlay escuro
 $popupOverlay.Add_MouseLeftButtonDown({
     param($sender, $e)
@@ -839,10 +872,22 @@ $btnPesquisar.Add_Click({
     $script:BuscaEmAndamento = $true
     $nomeBusca = Format-NomeBusca -NomeDigitado $nomeDigitado
     $logFilePath = Join-Path $script:PastaTemporaria "busca_log.txt"
-    
+    $script:FileCountFile = Join-Path $script:PastaTemporaria "file_count.txt"
+
+    # Inicializar arquivo de contagem
+    "0" | Out-File -FilePath $script:FileCountFile -Force
+
+    # Resetar o loading para estado de processamento
+    $lblLoading.Text = "Processando..."
+    $lblFileCount.Text = "Encontrando... 0 arquivos"
+    $progressLoading.IsIndeterminate = $true
+    $progressLoading.Visibility = 'Visible'
+    $btnCloseLoading.Visibility = 'Collapsed'
+    $loadingIcon.Text = "⏳"
+
     # --- Script da Busca (ScriptBlock) ---
     $scriptBlock = {
-        param($CaminhoBase, $PadraoNome, $PastaIgnorar, $LogPath)
+        param($CaminhoBase, $PadraoNome, $PastaIgnorar, $LogPath, $CountFilePath)
         
         # --- Funções auxiliares (devem ser redefinidas dentro do job) ---
         function Write-Log-Local {
@@ -898,6 +943,10 @@ $btnPesquisar.Add_Click({
                         if ($matchPadrao1 -or $matchPadrao2) {
                             $arquivosEncontrados.Add($arquivo)
                             Write-Log-Local "ENCONTRADO: $nomeArquivo"
+                            # Atualizar arquivo de contagem em tempo real
+                            try {
+                                $arquivosEncontrados.Count.ToString() | Out-File -FilePath $CountFilePath -Force
+                            } catch {}
                         }
                     }
 
@@ -924,7 +973,7 @@ $btnPesquisar.Add_Click({
     } # --- Fim do ScriptBlock ---
     
     # 1. Inicia o Job em um processo separado
-    $script:job = Start-Job -ScriptBlock $scriptBlock -ArgumentList $script:CaminhoBase, $nomeBusca, $script:PastaIgnorar, $logFilePath
+    $script:job = Start-Job -ScriptBlock $scriptBlock -ArgumentList $script:CaminhoBase, $nomeBusca, $script:PastaIgnorar, $logFilePath, $script:FileCountFile
     
     # 2. Para o timer antigo, se existir
     if ($script:timer -and $script:timer.IsEnabled) {
@@ -937,17 +986,27 @@ $btnPesquisar.Add_Click({
     
     # Adiciona o evento de verificação (Este código roda na Thread da UI)
     $script:timer.Add_Tick({
-        
+
         if (-not $script:job) {
             $script:timer.Stop()
             return
         }
 
+        # Ler contagem em tempo real
+        try {
+            if (Test-Path $script:FileCountFile) {
+                $currentCount = Get-Content $script:FileCountFile -ErrorAction SilentlyContinue
+                if ($currentCount) {
+                    $lblFileCount.Text = "Encontrando... $currentCount arquivos"
+                }
+            }
+        } catch {}
+
         if ($script:job.State -in @('Completed', 'Failed', 'Stopped')) {
-            
+
             # 1. O JOB TERMINOU! Pare de verificar.
             $script:timer.Stop()
-            
+
             # 2. Colete os resultados do processo separado.
             try {
                 $script:ArquivosEncontrados = Receive-Job $script:job
@@ -960,14 +1019,10 @@ $btnPesquisar.Add_Click({
                 Remove-Job $script:job -Force
                 $script:job = $null
             }
-            
-            # 3. ESCONDA O POP-UP
-            $loadingOverlay.Visibility = 'Collapsed'
-            $script:BuscaEmAndamento = $false
-            
-            # 4. Exiba os resultados
+
+            # 3. Exiba os resultados na lista
             $logFilePath = Join-Path $script:PastaTemporaria "busca_log.txt"
-                
+
             if ($script:ArquivosEncontrados -is [array] -and $script:ArquivosEncontrados.Count -gt 0) {
                 # SUCESSO
                 foreach ($arquivo in $script:ArquivosEncontrados) {
@@ -976,21 +1031,36 @@ $btnPesquisar.Add_Click({
                 }
                 $lblStatus.Text = "✅ $($script:ArquivosEncontrados.Count) arquivo(s) encontrado(s)"
                 $btnAbrirPasta.Visibility = 'Visible'
-                Show-Popup -Icon "✅" -Message "$($script:ArquivosEncontrados.Count) arquivo(s) encontrado(s)!" -Type "Success"
+
+                # Mudar loading para estado "concluído"
+                $loadingIcon.Text = "✅"
+                $lblLoading.Text = "Pesquisa concluída!"
+                $lblFileCount.Text = "$($script:ArquivosEncontrados.Count) arquivos encontrados"
+                $progressLoading.IsIndeterminate = $false
+                $progressLoading.Value = 100
+                $btnCloseLoading.Visibility = 'Visible'
             } else {
                 # FALHA/VAZIO
                 $msgLog = ""
                 if (Test-Path $logFilePath) {
                     $msgLog = Get-Content $logFilePath | Select-Object -Last 1
                 }
-                $msgDisplay = "Nenhum arquivo encontrado para '$($txtBusca.Text)'."
+                $msgDisplay = "Nenhum arquivo encontrado"
                 if ($msgLog -like "*ERRO*") {
-                    $msgDisplay = "Erro durante a busca (Ver log externo): $msgLog"
+                    $msgDisplay = "Erro durante a busca"
                 }
-                $lstResultados.Items.Add("❌ Falha na Busca: $msgDisplay")
-                $lblStatus.Text = "⚠️ Erro na Busca: $msgDisplay"
-                Show-Popup -Icon "❌" -Message "$msgDisplay" -Type "Error"
+                $lstResultados.Items.Add("❌ $msgDisplay")
+                $lblStatus.Text = "⚠️ $msgDisplay"
+
+                # Mudar loading para estado "concluído" com erro
+                $loadingIcon.Text = "❌"
+                $lblLoading.Text = "Pesquisa concluída"
+                $lblFileCount.Text = $msgDisplay
+                $progressLoading.Visibility = 'Collapsed'
+                $btnCloseLoading.Visibility = 'Visible'
             }
+
+            $script:BuscaEmAndamento = $false
         }
     })
     
