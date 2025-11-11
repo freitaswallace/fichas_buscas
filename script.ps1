@@ -709,26 +709,36 @@ function Show-Popup {
 # --- FIM DA FUNÇÃO SHOW-POPUP ---
 
 function Hide-Popup {
-    $storyboard = New-Object System.Windows.Media.Animation.Storyboard
-    $scaleXAnimation = New-Object System.Windows.Media.Animation.DoubleAnimation
-    $scaleXAnimation.From = 1; $scaleXAnimation.To = 0
-    $scaleXAnimation.Duration = [System.Windows.Duration]::new([System.TimeSpan]::FromMilliseconds(200))
-    $scaleYAnimation = New-Object System.Windows.Media.Animation.DoubleAnimation
-    $scaleYAnimation.From = 1; $scaleYAnimation.To = 0
-    $scaleYAnimation.Duration = [System.Windows.Duration]::new([System.TimeSpan]::FromMilliseconds(200))
-    
-    [System.Windows.Media.Animation.Storyboard]::SetTarget($scaleXAnimation, $popupScale)
-    [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($scaleXAnimation, 'ScaleX')
-    [System.Windows.Media.Animation.Storyboard]::SetTarget($scaleYAnimation, $popupScale)
-    [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($scaleYAnimation, 'ScaleY')
-    
-    $storyboard.Children.Add($scaleXAnimation)
-    $storyboard.Children.Add($scaleYAnimation)
-    
-    $storyboard.Add_Completed({
+    Write-Host "Hide-Popup chamado"
+    try {
+        $storyboard = New-Object System.Windows.Media.Animation.Storyboard
+        $scaleXAnimation = New-Object System.Windows.Media.Animation.DoubleAnimation
+        $scaleXAnimation.From = 1; $scaleXAnimation.To = 0
+        $scaleXAnimation.Duration = [System.Windows.Duration]::new([System.TimeSpan]::FromMilliseconds(200))
+        $scaleYAnimation = New-Object System.Windows.Media.Animation.DoubleAnimation
+        $scaleYAnimation.From = 1; $scaleYAnimation.To = 0
+        $scaleYAnimation.Duration = [System.Windows.Duration]::new([System.TimeSpan]::FromMilliseconds(200))
+
+        [System.Windows.Media.Animation.Storyboard]::SetTarget($scaleXAnimation, $popupScale)
+        [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($scaleXAnimation, 'ScaleX')
+        [System.Windows.Media.Animation.Storyboard]::SetTarget($scaleYAnimation, $popupScale)
+        [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($scaleYAnimation, 'ScaleY')
+
+        $storyboard.Children.Add($scaleXAnimation)
+        $storyboard.Children.Add($scaleYAnimation)
+
+        $storyboard.Add_Completed({
+            Write-Host "Animação de popup completada - escondendo overlay"
+            $popupOverlay.Visibility = 'Collapsed'
+        })
+        $storyboard.Begin()
+        Write-Host "Animação de popup iniciada"
+    }
+    catch {
+        # Se a animação falhar, esconde o overlay imediatamente
+        Write-Warning "Erro na animação de fechar popup: $($_.Exception.Message)"
         $popupOverlay.Visibility = 'Collapsed'
-    })
-    $storyboard.Begin()
+    }
 }
 
 
@@ -750,7 +760,10 @@ $themeToggle.Add_Unchecked({
         Write-Warning "Erro ao desativar tema escuro: $($_.Exception.Message)"
     }
 })
-$popupButton.Add_Click({ Hide-Popup })
+$popupButton.Add_Click({
+    Write-Host "Botão popup clicado"
+    Hide-Popup
+})
 $titleBar.Add_MouseLeftButtonDown({ $window.DragMove() })
 $btnMinimize.Add_Click({ $window.WindowState = 'Minimized' })
 $btnMaximize.Add_Click({
