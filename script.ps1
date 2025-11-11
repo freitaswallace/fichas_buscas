@@ -7,7 +7,7 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 # --- CONFIGURAÇÃO OBRATÓRIA ---
-$script:GhostscriptExePath = "C:\Program Files\gs\gs10.06.0\bin\gswin64.exe"
+$script:GhostscriptExePath = "C:\Program Files\gs\gs10.06.0\bin\gswin64c.exe"  # Versão console (sem janela)
 # --- FIM DA CONFIGURAÇÃO ---
 
 # Configurações globais
