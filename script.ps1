@@ -970,6 +970,12 @@ $btnPesquisar.Add_Click({
             $nomeBaseArquivo = [System.IO.Path]::GetFileNameWithoutExtension($CaminhoArquivo)
             return (Remove-Acentos-Local -Texto $nomeBaseArquivo).ToUpper()
         }
+
+        function Remove-Separadores {
+            param([string]$Texto)
+            # Remove underscores, espaços e hífens para comparação flexível
+            return $Texto -replace '[_\s\-]', ''
+        }
         # --- Fim das funções auxiliares ---
 
         Write-Log-Local "INÍCIO DA BUSCA (Job): Padrão: $PadraoNome"
@@ -994,21 +1000,44 @@ $btnPesquisar.Add_Click({
                         $nomeArquivo = [System.IO.Path]::GetFileName($arquivo)
                         $nomeArquivoNormalizado = (Remove-Acentos-Local -Texto $nomeArquivo).ToUpper()
 
-                        # Padrão 1: Busca substring (para nomes e ruas)
-                        $matchPadrao1 = $nomeArquivoNormalizado.Contains($PadraoNome)
+                        $matchEncontrado = $false
 
-                        # Padrão 2: Busca exata no nome base (para nomes completos)
-                        $nomeBaseNormalizado = Get-NomeBaseNormalizado -CaminhoArquivo $nomeArquivo
-                        $matchPadrao2 = $nomeBaseNormalizado -eq $PadraoNome
-
-                        # Padrão 3: Busca por documento (CPF/CNPJ) - termina com -[NUMERO].pdf
-                        $matchPadrao3 = $false
                         if ($IsBuscaDocumento) {
-                            # Verifica se o nome do arquivo termina com -[NUMERO].pdf
-                            $matchPadrao3 = $nomeArquivo -match "-$PadraoNome\.pdf$"
+                            # Busca por documento (CPF/CNPJ) - termina com -[NUMERO].pdf
+                            if ($nomeArquivo -match "-$PadraoNome\.pdf$") {
+                                $matchEncontrado = $true
+                                Write-Log-Local "MATCH DOCUMENTO: $nomeArquivo"
+                            }
+                        } else {
+                            # Busca por nome ou rua - 3 estratégias
+
+                            # Estratégia 1: Busca substring direta (com underscores)
+                            if ($nomeArquivoNormalizado.Contains($PadraoNome)) {
+                                $matchEncontrado = $true
+                                Write-Log-Local "MATCH SUBSTRING: $nomeArquivo"
+                            }
+
+                            # Estratégia 2: Busca exata no nome base
+                            if (-not $matchEncontrado) {
+                                $nomeBaseNormalizado = Get-NomeBaseNormalizado -CaminhoArquivo $nomeArquivo
+                                if ($nomeBaseNormalizado -eq $PadraoNome) {
+                                    $matchEncontrado = $true
+                                    Write-Log-Local "MATCH EXATO: $nomeArquivo"
+                                }
+                            }
+
+                            # Estratégia 3: Busca flexível (remove todos os separadores)
+                            if (-not $matchEncontrado) {
+                                $nomeArquivoSemSeparadores = Remove-Separadores -Texto $nomeArquivoNormalizado
+                                $padraoSemSeparadores = Remove-Separadores -Texto $PadraoNome
+                                if ($nomeArquivoSemSeparadores.Contains($padraoSemSeparadores)) {
+                                    $matchEncontrado = $true
+                                    Write-Log-Local "MATCH FLEXIVEL: $nomeArquivo (padrão sem separadores: $padraoSemSeparadores)"
+                                }
+                            }
                         }
 
-                        if ($matchPadrao1 -or $matchPadrao2 -or $matchPadrao3) {
+                        if ($matchEncontrado) {
                             $arquivosEncontrados.Add($arquivo)
                             Write-Log-Local "ENCONTRADO: $nomeArquivo"
                             # Atualizar arquivo de contagem em tempo real
