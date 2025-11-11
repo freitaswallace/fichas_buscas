@@ -1009,31 +1009,16 @@ $btnPesquisar.Add_Click({
                                 Write-Log-Local "MATCH DOCUMENTO: $nomeArquivo"
                             }
                         } else {
-                            # Busca por nome ou rua - 3 estratégias
+                            # Busca por nome ou rua - BUSCA PARCIAL PERMISSIVA
+                            # Remove TODOS os separadores de ambos e busca substring
+                            $nomeArquivoSemSeparadores = Remove-Separadores -Texto $nomeArquivoNormalizado
+                            $padraoSemSeparadores = Remove-Separadores -Texto $PadraoNome
 
-                            # Estratégia 1: Busca substring direta (com underscores)
-                            if ($nomeArquivoNormalizado.Contains($PadraoNome)) {
+                            Write-Log-Local "DEBUG - Arquivo limpo: $nomeArquivoSemSeparadores | Padrão limpo: $padraoSemSeparadores"
+
+                            if ($nomeArquivoSemSeparadores.Contains($padraoSemSeparadores)) {
                                 $matchEncontrado = $true
-                                Write-Log-Local "MATCH SUBSTRING: $nomeArquivo"
-                            }
-
-                            # Estratégia 2: Busca exata no nome base
-                            if (-not $matchEncontrado) {
-                                $nomeBaseNormalizado = Get-NomeBaseNormalizado -CaminhoArquivo $nomeArquivo
-                                if ($nomeBaseNormalizado -eq $PadraoNome) {
-                                    $matchEncontrado = $true
-                                    Write-Log-Local "MATCH EXATO: $nomeArquivo"
-                                }
-                            }
-
-                            # Estratégia 3: Busca flexível (remove todos os separadores)
-                            if (-not $matchEncontrado) {
-                                $nomeArquivoSemSeparadores = Remove-Separadores -Texto $nomeArquivoNormalizado
-                                $padraoSemSeparadores = Remove-Separadores -Texto $PadraoNome
-                                if ($nomeArquivoSemSeparadores.Contains($padraoSemSeparadores)) {
-                                    $matchEncontrado = $true
-                                    Write-Log-Local "MATCH FLEXIVEL: $nomeArquivo (padrão sem separadores: $padraoSemSeparadores)"
-                                }
+                                Write-Log-Local "MATCH ENCONTRADO: $nomeArquivo"
                             }
                         }
 
