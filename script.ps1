@@ -1084,9 +1084,14 @@ $window.Add_Closed({
     }
 })
 
-# Inicializar tema após a janela carregar
+# Inicializar após a janela carregar
 $window.Add_Loaded({
-    Toggle-Theme -IsDark $false
+    # Garantir que overlays estejam escondidos na inicialização
+    $popupOverlay.Visibility = 'Collapsed'
+    $loadingOverlay.Visibility = 'Collapsed'
+
+    # Definir tema inicial como Light (sem chamar Toggle-Theme para evitar erros)
+    $script:TemaAtual = "Light"
 })
 
 # Mostrar janela
