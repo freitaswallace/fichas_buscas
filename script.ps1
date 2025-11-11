@@ -108,12 +108,37 @@ function Generate-PdfPreviewImage {
         $psi.Arguments = $arguments -join " "
         $psi.UseShellExecute = $false
         $psi.CreateNoWindow = $true
-        $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true
+        $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+
         $proc = New-Object System.Diagnostics.Process
         $proc.StartInfo = $psi
-        $proc.Start() | Out-Null
+
+        # Iniciar o processo sem janela visível
+        [void]$proc.Start()
+
+        # Ocultar a janela imediatamente após iniciar (garantia extra)
+        try {
+            if (-not ([System.Management.Automation.PSTypeName]'WindowHelper').Type) {
+                Add-Type @"
+                    using System;
+                    using System.Runtime.InteropServices;
+                    public class WindowHelper {
+                        [DllImport("user32.dll")]
+                        public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+                        public const int SW_HIDE = 0;
+                    }
+"@
+            }
+            # Aguardar um pouco para garantir que a janela foi criada
+            Start-Sleep -Milliseconds 50
+            $proc.Refresh()
+            if ($proc.MainWindowHandle -ne [IntPtr]::Zero) {
+                [WindowHelper]::ShowWindow($proc.MainWindowHandle, [WindowHelper]::SW_HIDE)
+            }
+        } catch {}
+
         $proc.WaitForExit()
 
         if ($proc.ExitCode -ne 0) { return $null }
