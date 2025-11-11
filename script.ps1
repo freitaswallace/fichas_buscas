@@ -12,7 +12,7 @@ $script:GhostscriptExePath = "C:\Program Files\gs\gs10.06.0\bin\gswin64c.exe"  #
 
 # Configurações globais
 $script:CaminhoBase = "\\192.168.20.100\TRABALHO\TRANSITO\FICHAS INDISPONIBILIDADE NOVAS RENOMEADAS"
-$script:PastaIgnorar = ""  # Desabilitado - busca em todas as pastas
+$script:PastaIgnorar = "\\192.168.20.100\TRABALHO\TRANSITO\FICHAS INDISPONIBILIDADE NOVAS RENOMEADAS\INDICADOR REAL"  # Por padrão ignora INDICADOR REAL (toggle altera isso)
 $script:PastaTemporaria = $null
 $script:ArquivosEncontrados = @()
 $script:BuscaEmAndamento = $false
@@ -416,9 +416,30 @@ function Generate-PdfPreviewImage {
                                 </StackPanel>
                             </Button>
                         </Grid>
-                        
-                        <TextBlock Grid.Row="2" Name="lblStatus" Text="Sistema pronto para busca..." Foreground="#F5F5F5" FontSize="14" HorizontalAlignment="Center" FontStyle="Italic" Opacity="0.9"/>
-                        
+
+                        <Grid Grid.Row="2" Margin="0,5,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <CheckBox Grid.Column="0" Name="chkBuscarIndicadorReal" VerticalAlignment="Center" Margin="0,0,15,0">
+                                <CheckBox.Style>
+                                    <Style TargetType="CheckBox">
+                                        <Setter Property="Foreground" Value="#F5F5F5"/>
+                                        <Setter Property="FontSize" Value="14"/>
+                                        <Setter Property="Cursor" Value="Hand"/>
+                                    </Style>
+                                </CheckBox.Style>
+                                <TextBlock>
+                                    <Run Text="🏢 Buscar apenas em "/>
+                                    <Run Text="INDICADOR REAL" FontWeight="Bold"/>
+                                </TextBlock>
+                            </CheckBox>
+
+                            <TextBlock Grid.Column="1" Name="lblStatus" Text="Sistema pronto para busca..." Foreground="#F5F5F5" FontSize="14" HorizontalAlignment="Right" FontStyle="Italic" Opacity="0.9" VerticalAlignment="Center"/>
+                        </Grid>
+
                         <Button Grid.Row="3" Name="btnAbrirPasta" Style="{StaticResource ModernButton}" Background="{StaticResource LightSolidDarkAlt}" Visibility="Collapsed" HorizontalAlignment="Center" Margin="0,10,0,0">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="📁 " FontSize="18"/>
@@ -549,6 +570,7 @@ $txtBusca = $window.FindName("txtBusca")
 $searchIcon = $window.FindName("SearchIcon")
 $btnPesquisar = $window.FindName("btnPesquisar")
 $btnAbrirPasta = $window.FindName("btnAbrirPasta")
+$chkBuscarIndicadorReal = $window.FindName("chkBuscarIndicadorReal")
 $lblStatus = $window.FindName("lblStatus")
 $lstResultados = $window.FindName("lstResultados")
 $imgPreview = $window.FindName("imgPreview")
@@ -929,6 +951,22 @@ $btnPesquisar.Add_Click({
         Write-Host "Detectada busca por nome/rua: $nomeBusca"
     }
 
+    # Verificar se deve buscar apenas em INDICADOR REAL ou excluir essa pasta
+    $buscarApenasIndicadorReal = $chkBuscarIndicadorReal.IsChecked -eq $true
+    $pastaIndicadorReal = "\\192.168.20.100\TRABALHO\TRANSITO\FICHAS INDISPONIBILIDADE NOVAS RENOMEADAS\INDICADOR REAL"
+
+    if ($buscarApenasIndicadorReal) {
+        # Buscar APENAS na pasta INDICADOR REAL
+        $caminhoParaBusca = $pastaIndicadorReal
+        $pastaParaIgnorar = ""
+        Write-Host "Modo: Buscar APENAS em INDICADOR REAL"
+    } else {
+        # Buscar em todas EXCETO INDICADOR REAL
+        $caminhoParaBusca = $script:CaminhoBase
+        $pastaParaIgnorar = $pastaIndicadorReal
+        Write-Host "Modo: Buscar em todas EXCETO INDICADOR REAL"
+    }
+
     $logFilePath = Join-Path $script:PastaTemporaria "busca_log.txt"
     $script:FileCountFile = Join-Path $script:PastaTemporaria "file_count.txt"
 
@@ -1056,7 +1094,7 @@ $btnPesquisar.Add_Click({
     } # --- Fim do ScriptBlock ---
     
     # 1. Inicia o Job em um processo separado
-    $script:job = Start-Job -ScriptBlock $scriptBlock -ArgumentList $script:CaminhoBase, $nomeBusca, $script:PastaIgnorar, $logFilePath, $script:FileCountFile, $isBuscaDocumento
+    $script:job = Start-Job -ScriptBlock $scriptBlock -ArgumentList $caminhoParaBusca, $nomeBusca, $pastaParaIgnorar, $logFilePath, $script:FileCountFile, $isBuscaDocumento
     
     # 2. Para o timer antigo, se existir
     if ($script:timer -and $script:timer.IsEnabled) {
