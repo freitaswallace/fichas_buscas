@@ -523,6 +523,8 @@ $btnClose = $window.FindName("btnClose")
 function Toggle-Theme {
     param([bool]$IsDark)
 
+    Write-Host "Toggle-Theme chamado com IsDark=$IsDark"
+
     try { # Adicionado Try/Catch para depuração
         # 1. Definição de Cores (Método Direto e Robusto)
         $brush_White = [System.Windows.Media.Brushes]::White
@@ -647,10 +649,13 @@ function Toggle-Theme {
             $newStyle.Triggers.Add($selectedTrigger)
             $lstResultados.ItemContainerStyle = $newStyle
         }
+
+        Write-Host "Toggle-Theme aplicado com sucesso: $(if($IsDark){'Dark'}else{'Light'})"
     }
     catch {
         # Se qualquer linha acima falhar, loga o erro mas não mostra popup durante inicialização
         Write-Warning "Erro ao trocar tema: $($_.Exception.Message)"
+        Write-Warning "StackTrace: $($_.ScriptStackTrace)"
     }
 }
 # --- FIM DA FUNÇÃO DE TEMA ---
@@ -729,8 +734,22 @@ function Hide-Popup {
 
 # Event Handlers
 
-$themeToggle.Add_Checked({ Toggle-Theme -IsDark $true })
-$themeToggle.Add_Unchecked({ Toggle-Theme -IsDark $false })
+$themeToggle.Add_Checked({
+    try {
+        Toggle-Theme -IsDark $true
+    }
+    catch {
+        Write-Warning "Erro ao ativar tema escuro: $($_.Exception.Message)"
+    }
+})
+$themeToggle.Add_Unchecked({
+    try {
+        Toggle-Theme -IsDark $false
+    }
+    catch {
+        Write-Warning "Erro ao desativar tema escuro: $($_.Exception.Message)"
+    }
+})
 $popupButton.Add_Click({ Hide-Popup })
 $titleBar.Add_MouseLeftButtonDown({ $window.DragMove() })
 $btnMinimize.Add_Click({ $window.WindowState = 'Minimized' })
@@ -1086,12 +1105,19 @@ $window.Add_Closed({
 
 # Inicializar após a janela carregar
 $window.Add_Loaded({
-    # Garantir que overlays estejam escondidos na inicialização
-    $popupOverlay.Visibility = 'Collapsed'
-    $loadingOverlay.Visibility = 'Collapsed'
+    try {
+        # Garantir que overlays estejam escondidos na inicialização
+        $popupOverlay.Visibility = 'Collapsed'
+        $loadingOverlay.Visibility = 'Collapsed'
 
-    # Definir tema inicial como Light (sem chamar Toggle-Theme para evitar erros)
-    $script:TemaAtual = "Light"
+        # Aplicar tema inicial Light
+        Toggle-Theme -IsDark $false
+    }
+    catch {
+        # Se der erro, apenas define a variável e mantém estilos padrão do XAML
+        $script:TemaAtual = "Light"
+        Write-Warning "Erro ao inicializar tema: $($_.Exception.Message)"
+    }
 })
 
 # Mostrar janela
