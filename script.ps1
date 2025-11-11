@@ -520,189 +520,186 @@ $btnMaximize = $window.FindName("btnMaximize")
 $btnClose = $window.FindName("btnClose")
 
 # --- FUNÇÃO DE TEMA CORRIGIDA ---
-function Toggle-Theme { 
-    param([bool]$IsDark) { 
-        
-        try { # Adicionado Try/Catch para depuração
-            
-            # 1. Definição de Cores (Método Direto e Robusto)
-            $brush_White = [System.Windows.Media.Brushes]::White
-            $brush_Black = [System.Windows.Media.Brushes]::Black
-            $brush_F5F5F5 = [System.Windows.Media.SolidColorBrush]"#F5F5F5"
-            $brush_CCCCCC = [System.Windows.Media.SolidColorBrush]"#CCCCCC"
-            $brush_AAAAAA = [System.Windows.Media.SolidColorBrush]"#AAAAAA"
-            $brush_DDDDDD = [System.Windows.Media.SolidColorBrush]"#DDDDDD"
-            $brush_666666 = [System.Windows.Media.SolidColorBrush]"#666666"
-            $brush_333333 = [System.Windows.Media.SolidColorBrush]"#333333"
-            $brush_F0F0F0 = [System.Windows.Media.SolidColorBrush]"#F0F0F0"
-            
-            $brush_1a1a1a = [System.Windows.Media.SolidColorBrush]"#1a1a1a"
-            $brush_2a2a2a = [System.Windows.Media.SolidColorBrush]"#2a2a2a"
-            $brush_3a3a3a = [System.Windows.Media.SolidColorBrush]"#3a3a3a"
-            $brush_4a4a4a = [System.Windows.Media.SolidColorBrush]"#4a4a4a"
-            $brush_555555 = [System.Windows.Media.SolidColorBrush]"#555555"
-            
-            $brush_TransWhite = [System.Windows.Media.SolidColorBrush]"#10FFFFFF"
-            $brush_TransRed = [System.Windows.Media.SolidColorBrush]"#50FF0000"
-            $brush_TransRedDark = [System.Windows.Media.SolidColorBrush]"#50CC0000"
-            $brush_TransGray = [System.Windows.Media.SolidColorBrush]"#20888888"
+function Toggle-Theme {
+    param([bool]$IsDark)
 
-            if ($IsDark) {
-                $script:TemaAtual = "Dark"
-                $mainBorder.Background = $window.FindResource("DarkBackground")
-                $titleBar.Background = $brush_TransWhite
-                $titleText.Foreground = $brush_CCCCCC
-                $themeLabel.Foreground = $brush_CCCCCC
-                $btnMinimize.Foreground = $brush_CCCCCC
-                $btnMaximize.Foreground = $brush_CCCCCC
-                $btnClose.Background = $brush_TransRedDark
-                $btnClose.Foreground = $brush_CCCCCC
-                $searchCard.Background = $window.FindResource("DarkMainGradient")
-                $searchTitle.Foreground = $brush_CCCCCC
-                $searchInputBorder.Background = $brush_TransGray
-                $searchIcon.Foreground = $brush_AAAAAA
-                $txtBusca.Foreground = $brush_DDDDDD
-                $lblStatus.Foreground = $brush_AAAAAA
-                $btnPesquisar.Background = $window.FindResource("DarkSecondaryGradient")
-                $btnPesquisar.Foreground = $brush_CCCCCC
-                $btnAbrirPasta.Background = $window.FindResource("DarkSecondaryGradient")
-                $btnAbrirPasta.Foreground = $brush_CCCCCC
-                $resultsCard.Background = $brush_1a1a1a
-                $resultsHeader.Background = $window.FindResource("DarkSecondaryGradient")
-                $resultsHeaderText.Foreground = $brush_CCCCCC
-                $previewCard.Background = $brush_1a1a1a
-                $previewHeader.Background = $window.FindResource("DarkSecondaryGradient")
-                $previewHeaderText.Foreground = $brush_CCCCCC
-                $lblNoPreview.Foreground = $brush_666666
-                $popupContent.Background = $brush_2a2a2a
-                $popupMessage.Foreground = $brush_CCCCCC
-                $popupButton.Background = $window.FindResource("DarkSecondaryGradient")
-                $loadingContent.Background = $brush_2a2a2a
-                $lblLoading.Foreground = $brush_CCCCCC
-                
-                # --- Estilo da Lista (Dark) ---
-                $lstResultados.Resources.Clear()
-                $newStyle = New-Object System.Windows.Style([System.Windows.Controls.ListBoxItem])
-                $newStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_2a2a2a)))
-                $newStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::ForegroundProperty, $brush_CCCCCC)))
-                $hoverTrigger = New-Object System.Windows.Trigger
-                $hoverTrigger.Property = [System.Windows.Controls.ListBoxItem]::IsMouseOverProperty
-                $hoverTrigger.Value = $true
-                $hoverTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_3a3a3a)))
-                $newStyle.Triggers.Add($hoverTrigger)
-                $selectedTrigger = New-Object System.Windows.Trigger
-                $selectedTrigger.Property = [System.Windows.Controls.ListBoxItem]::IsSelectedProperty
-                $selectedTrigger.Value = $true
-                $selectedTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_4a4a4a)))
-                $selectedTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::ForegroundProperty, $brush_White)))
-                $newStyle.Triggers.Add($selectedTrigger)
-                $lstResultados.ItemContainerStyle = $newStyle
-                
-            } else {
-                $script:TemaAtual = "Light"
-                $mainBorder.Background = $window.FindResource("LightBackground")
-                $titleBar.Background = $window.FindResource("LightSolidDark")
-                $titleText.Foreground = $brush_F5F5F5
-                $themeLabel.Foreground = $brush_F5F5F5
-                $btnMinimize.Foreground = $brush_F5F5F5
-                $btnMaximize.Foreground = $brush_F5F5F5
-                $btnClose.Background = $brush_TransRed
-                $btnClose.Foreground = $brush_White
-                $searchCard.Background = $window.FindResource("LightSolidDark")
-                $searchTitle.Foreground = $brush_F5F5F5
-                $searchInputBorder.Background = $brush_555555
-                $searchIcon.Foreground = $brush_F5F5F5
-                $txtBusca.Foreground = $brush_F5F5F5
-                $lblStatus.Foreground = $brush_F5F5F5
-                $btnPesquisar.Background = $window.FindResource("LightSolidDarkAlt")
-                $btnPesquisar.Foreground = $brush_F5F5F5
-                $btnAbrirPasta.Background = $window.FindResource("LightSolidDarkAlt")
-                $btnAbrirPasta.Foreground = $brush_F5F5F5
-                $resultsCard.Background = $window.FindResource("LightCreamBackground")
-                $resultsHeader.Background = $window.FindResource("LightSolidDark")
-                $resultsHeaderText.Foreground = $brush_F5F5F5
-                $previewCard.Background = $window.FindResource("LightCreamBackground")
-                $previewHeader.Background = $window.FindResource("LightSolidDark")
-                $previewHeaderText.Foreground = $brush_F5F5F5
-                $lblNoPreview.Foreground = $brush_666666
-                $popupContent.Background = $brush_White
-                $popupMessage.Foreground = $brush_Black
-                $popupButton.Background = $window.FindResource("LightSolidDark")
-                $loadingContent.Background = $brush_White
-                $lblLoading.Foreground = $brush_Black
-                
-                # --- Estilo da Lista (Light) ---
-                $lstResultados.Resources.Clear()
-                $newStyle = New-Object System.Windows.Style([System.Windows.Controls.ListBoxItem])
-                $newStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_White)))
-                $newStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::ForegroundProperty, $brush_333333)))
-                $hoverTrigger = New-Object System.Windows.Trigger
-                $hoverTrigger.Property = [System.Windows.Controls.ListBoxItem]::IsMouseOverProperty
-                $hoverTrigger.Value = $true
-                $hoverTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_F0F0F0)))
-                $newStyle.Triggers.Add($hoverTrigger)
-                $selectedTrigger = New-Object System.Windows.Trigger
-                $selectedTrigger.Property = [System.Windows.Controls.ListBoxItem]::IsSelectedProperty
-                $selectedTrigger.Value = $true
-                $selectedTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_4a4a4a)))
-                $selectedTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::ForegroundProperty, $brush_White)))
-                $newStyle.Triggers.Add($selectedTrigger)
-                $lstResultados.ItemContainerStyle = $newStyle
-            }
+    try { # Adicionado Try/Catch para depuração
+        # 1. Definição de Cores (Método Direto e Robusto)
+        $brush_White = [System.Windows.Media.Brushes]::White
+        $brush_Black = [System.Windows.Media.Brushes]::Black
+        $brush_F5F5F5 = [System.Windows.Media.SolidColorBrush]"#F5F5F5"
+        $brush_CCCCCC = [System.Windows.Media.SolidColorBrush]"#CCCCCC"
+        $brush_AAAAAA = [System.Windows.Media.SolidColorBrush]"#AAAAAA"
+        $brush_DDDDDD = [System.Windows.Media.SolidColorBrush]"#DDDDDD"
+        $brush_666666 = [System.Windows.Media.SolidColorBrush]"#666666"
+        $brush_333333 = [System.Windows.Media.SolidColorBrush]"#333333"
+        $brush_F0F0F0 = [System.Windows.Media.SolidColorBrush]"#F0F0F0"
+
+        $brush_1a1a1a = [System.Windows.Media.SolidColorBrush]"#1a1a1a"
+        $brush_2a2a2a = [System.Windows.Media.SolidColorBrush]"#2a2a2a"
+        $brush_3a3a3a = [System.Windows.Media.SolidColorBrush]"#3a3a3a"
+        $brush_4a4a4a = [System.Windows.Media.SolidColorBrush]"#4a4a4a"
+        $brush_555555 = [System.Windows.Media.SolidColorBrush]"#555555"
+
+        $brush_TransWhite = [System.Windows.Media.SolidColorBrush]"#10FFFFFF"
+        $brush_TransRed = [System.Windows.Media.SolidColorBrush]"#50FF0000"
+        $brush_TransRedDark = [System.Windows.Media.SolidColorBrush]"#50CC0000"
+        $brush_TransGray = [System.Windows.Media.SolidColorBrush]"#20888888"
+
+        if ($IsDark) {
+            $script:TemaAtual = "Dark"
+            $mainBorder.Background = $window.FindResource("DarkBackground")
+            $titleBar.Background = $brush_TransWhite
+            $titleText.Foreground = $brush_CCCCCC
+            $themeLabel.Foreground = $brush_CCCCCC
+            $btnMinimize.Foreground = $brush_CCCCCC
+            $btnMaximize.Foreground = $brush_CCCCCC
+            $btnClose.Background = $brush_TransRedDark
+            $btnClose.Foreground = $brush_CCCCCC
+            $searchCard.Background = $window.FindResource("DarkMainGradient")
+            $searchTitle.Foreground = $brush_CCCCCC
+            $searchInputBorder.Background = $brush_TransGray
+            $searchIcon.Foreground = $brush_AAAAAA
+            $txtBusca.Foreground = $brush_DDDDDD
+            $lblStatus.Foreground = $brush_AAAAAA
+            $btnPesquisar.Background = $window.FindResource("DarkSecondaryGradient")
+            $btnPesquisar.Foreground = $brush_CCCCCC
+            $btnAbrirPasta.Background = $window.FindResource("DarkSecondaryGradient")
+            $btnAbrirPasta.Foreground = $brush_CCCCCC
+            $resultsCard.Background = $brush_1a1a1a
+            $resultsHeader.Background = $window.FindResource("DarkSecondaryGradient")
+            $resultsHeaderText.Foreground = $brush_CCCCCC
+            $previewCard.Background = $brush_1a1a1a
+            $previewHeader.Background = $window.FindResource("DarkSecondaryGradient")
+            $previewHeaderText.Foreground = $brush_CCCCCC
+            $lblNoPreview.Foreground = $brush_666666
+            $popupContent.Background = $brush_2a2a2a
+            $popupMessage.Foreground = $brush_CCCCCC
+            $popupButton.Background = $window.FindResource("DarkSecondaryGradient")
+            $loadingContent.Background = $brush_2a2a2a
+            $lblLoading.Foreground = $brush_CCCCCC
+
+            # --- Estilo da Lista (Dark) ---
+            $lstResultados.Resources.Clear()
+            $newStyle = New-Object System.Windows.Style([System.Windows.Controls.ListBoxItem])
+            $newStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_2a2a2a)))
+            $newStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::ForegroundProperty, $brush_CCCCCC)))
+            $hoverTrigger = New-Object System.Windows.Trigger
+            $hoverTrigger.Property = [System.Windows.Controls.ListBoxItem]::IsMouseOverProperty
+            $hoverTrigger.Value = $true
+            $hoverTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_3a3a3a)))
+            $newStyle.Triggers.Add($hoverTrigger)
+            $selectedTrigger = New-Object System.Windows.Trigger
+            $selectedTrigger.Property = [System.Windows.Controls.ListBoxItem]::IsSelectedProperty
+            $selectedTrigger.Value = $true
+            $selectedTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_4a4a4a)))
+            $selectedTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::ForegroundProperty, $brush_White)))
+            $newStyle.Triggers.Add($selectedTrigger)
+            $lstResultados.ItemContainerStyle = $newStyle
+        } else {
+            $script:TemaAtual = "Light"
+            $mainBorder.Background = $window.FindResource("LightBackground")
+            $titleBar.Background = $window.FindResource("LightSolidDark")
+            $titleText.Foreground = $brush_F5F5F5
+            $themeLabel.Foreground = $brush_F5F5F5
+            $btnMinimize.Foreground = $brush_F5F5F5
+            $btnMaximize.Foreground = $brush_F5F5F5
+            $btnClose.Background = $brush_TransRed
+            $btnClose.Foreground = $brush_White
+            $searchCard.Background = $window.FindResource("LightSolidDark")
+            $searchTitle.Foreground = $brush_F5F5F5
+            $searchInputBorder.Background = $brush_555555
+            $searchIcon.Foreground = $brush_F5F5F5
+            $txtBusca.Foreground = $brush_F5F5F5
+            $lblStatus.Foreground = $brush_F5F5F5
+            $btnPesquisar.Background = $window.FindResource("LightSolidDarkAlt")
+            $btnPesquisar.Foreground = $brush_F5F5F5
+            $btnAbrirPasta.Background = $window.FindResource("LightSolidDarkAlt")
+            $btnAbrirPasta.Foreground = $brush_F5F5F5
+            $resultsCard.Background = $window.FindResource("LightCreamBackground")
+            $resultsHeader.Background = $window.FindResource("LightSolidDark")
+            $resultsHeaderText.Foreground = $brush_F5F5F5
+            $previewCard.Background = $window.FindResource("LightCreamBackground")
+            $previewHeader.Background = $window.FindResource("LightSolidDark")
+            $previewHeaderText.Foreground = $brush_F5F5F5
+            $lblNoPreview.Foreground = $brush_666666
+            $popupContent.Background = $brush_White
+            $popupMessage.Foreground = $brush_Black
+            $popupButton.Background = $window.FindResource("LightSolidDark")
+            $loadingContent.Background = $brush_White
+            $lblLoading.Foreground = $brush_Black
+
+            # --- Estilo da Lista (Light) ---
+            $lstResultados.Resources.Clear()
+            $newStyle = New-Object System.Windows.Style([System.Windows.Controls.ListBoxItem])
+            $newStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_White)))
+            $newStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::ForegroundProperty, $brush_333333)))
+            $hoverTrigger = New-Object System.Windows.Trigger
+            $hoverTrigger.Property = [System.Windows.Controls.ListBoxItem]::IsMouseOverProperty
+            $hoverTrigger.Value = $true
+            $hoverTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_F0F0F0)))
+            $newStyle.Triggers.Add($hoverTrigger)
+            $selectedTrigger = New-Object System.Windows.Trigger
+            $selectedTrigger.Property = [System.Windows.Controls.ListBoxItem]::IsSelectedProperty
+            $selectedTrigger.Value = $true
+            $selectedTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_4a4a4a)))
+            $selectedTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::ForegroundProperty, $brush_White)))
+            $newStyle.Triggers.Add($selectedTrigger)
+            $lstResultados.ItemContainerStyle = $newStyle
         }
-        catch {
-            # Se qualquer linha acima falhar, este pop-up será exibido.
-            Show-Popup -Icon "❌" -Message "Erro ao trocar tema: $($_.Exception.Message)" -Type "Error"
-        }
+    }
+    catch {
+        # Se qualquer linha acima falhar, este pop-up será exibido.
+        Show-Popup -Icon "❌" -Message "Erro ao trocar tema: $($_.Exception.Message)" -Type "Error"
     }
 }
 # --- FIM DA FUNÇÃO DE TEMA ---
 
 # --- FUNÇÃO SHOW-POPUP CORRIGIDA ---
-function Show-Popup { 
-    param([string]$Icon, [string]$Message, [string]$Type = "Success") { 
-        $popupIcon.Text = $Icon
-        $popupMessage.Text = $Message
-        
-        if ($script:TemaAtual -eq "Dark") {
-            $popupContent.Background = [System.Windows.Media.SolidColorBrush]"#2a2a2a"
-            $popupMessage.Foreground = [System.Windows.Media.SolidColorBrush]"#CCCCCC"
-            $popupButton.Background = $window.FindResource("DarkSecondaryGradient")
-        } else {
-            $popupContent.Background = [System.Windows.Media.Brushes]::White
-            $popupMessage.Foreground = [System.Windows.Media.Brushes]::Black
-            $popupButton.Background = $window.FindResource("LightSolidDark")
-        }
-        
-        switch ($Type) {
-            "Success" { $popupIcon.Foreground = [System.Windows.Media.Brushes]::Green }
-            "Error" { $popupIcon.Foreground = [System.Windows.Media.Brushes]::Red }
-            "Warning" { $popupIcon.Foreground = [System.Windows.Media.Brushes]::Orange }
-            "Info" { $popupIcon.Foreground = [System.Windows.Media.Brushes]::Blue }
-        }
-        
-        $popupOverlay.Visibility = 'Visible'
-        $storyboard = New-Object System.Windows.Media.Animation.Storyboard
-        $scaleXAnimation = New-Object System.Windows.Media.Animation.DoubleAnimation
-        $scaleXAnimation.From = 0; $scaleXAnimation.To = 1
-        $scaleXAnimation.Duration = [System.Windows.Duration]::new([System.TimeSpan]::FromMilliseconds(300))
-        $scaleXAnimation.EasingFunction = New-Object System.Windows.Media.Animation.BackEase
-        $scaleXAnimation.EasingFunction.EasingMode = 'EaseOut'
-        $scaleYAnimation = New-Object System.Windows.Media.Animation.DoubleAnimation
-        $scaleYAnimation.From = 0; $scaleYAnimation.To = 1
-        $scaleYAnimation.Duration = [System.Windows.Duration]::new([System.TimeSpan]::FromMilliseconds(300))
-        $scaleYAnimation.EasingFunction = New-Object System.Windows.Media.Animation.BackEase
-        $scaleYAnimation.EasingFunction.EasingMode = 'EaseOut'
-        
-        [System.Windows.Media.Animation.Storyboard]::SetTarget($scaleXAnimation, $popupScale)
-        [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($scaleXAnimation, 'ScaleX')
-        [System.Windows.Media.Animation.Storyboard]::SetTarget($scaleYAnimation, $popupScale)
-        [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($scaleYAnimation, 'ScaleY')
-        
-        $storyboard.Children.Add($scaleXAnimation)
-        $storyboard.Children.Add($scaleYAnimation)
-        $storyboard.Begin()
+function Show-Popup {
+    param([string]$Icon, [string]$Message, [string]$Type = "Success")
+
+    $popupIcon.Text = $Icon
+    $popupMessage.Text = $Message
+
+    if ($script:TemaAtual -eq "Dark") {
+        $popupContent.Background = [System.Windows.Media.SolidColorBrush]"#2a2a2a"
+        $popupMessage.Foreground = [System.Windows.Media.SolidColorBrush]"#CCCCCC"
+        $popupButton.Background = $window.FindResource("DarkSecondaryGradient")
+    } else {
+        $popupContent.Background = [System.Windows.Media.Brushes]::White
+        $popupMessage.Foreground = [System.Windows.Media.Brushes]::Black
+        $popupButton.Background = $window.FindResource("LightSolidDark")
     }
+
+    switch ($Type) {
+        "Success" { $popupIcon.Foreground = [System.Windows.Media.Brushes]::Green }
+        "Error" { $popupIcon.Foreground = [System.Windows.Media.Brushes]::Red }
+        "Warning" { $popupIcon.Foreground = [System.Windows.Media.Brushes]::Orange }
+        "Info" { $popupIcon.Foreground = [System.Windows.Media.Brushes]::Blue }
+    }
+
+    $popupOverlay.Visibility = 'Visible'
+    $storyboard = New-Object System.Windows.Media.Animation.Storyboard
+    $scaleXAnimation = New-Object System.Windows.Media.Animation.DoubleAnimation
+    $scaleXAnimation.From = 0; $scaleXAnimation.To = 1
+    $scaleXAnimation.Duration = [System.Windows.Duration]::new([System.TimeSpan]::FromMilliseconds(300))
+    $scaleXAnimation.EasingFunction = New-Object System.Windows.Media.Animation.BackEase
+    $scaleXAnimation.EasingFunction.EasingMode = 'EaseOut'
+    $scaleYAnimation = New-Object System.Windows.Media.Animation.DoubleAnimation
+    $scaleYAnimation.From = 0; $scaleYAnimation.To = 1
+    $scaleYAnimation.Duration = [System.Windows.Duration]::new([System.TimeSpan]::FromMilliseconds(300))
+    $scaleYAnimation.EasingFunction = New-Object System.Windows.Media.Animation.BackEase
+    $scaleYAnimation.EasingFunction.EasingMode = 'EaseOut'
+
+    [System.Windows.Media.Animation.Storyboard]::SetTarget($scaleXAnimation, $popupScale)
+    [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($scaleXAnimation, 'ScaleX')
+    [System.Windows.Media.Animation.Storyboard]::SetTarget($scaleYAnimation, $popupScale)
+    [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($scaleYAnimation, 'ScaleY')
+
+    $storyboard.Children.Add($scaleXAnimation)
+    $storyboard.Children.Add($scaleYAnimation)
+    $storyboard.Begin()
 }
 # --- FIM DA FUNÇÃO SHOW-POPUP ---
 
