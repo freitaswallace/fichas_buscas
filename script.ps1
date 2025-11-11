@@ -42,6 +42,28 @@ function Format-NomeBusca {
     return $nome
 }
 
+function Test-IsDocumento {
+    param([string]$Texto)
+    # Remove todos os caracteres não numéricos
+    $apenasDigitos = $Texto -replace '[^0-9]', ''
+
+    # Verifica se tem apenas dígitos após remover formatação
+    # CPF tem 11 dígitos, CNPJ tem 14
+    if ($apenasDigitos.Length -eq 11 -or $apenasDigitos.Length -eq 14) {
+        # Verifica se a string original tinha pelo menos 50% de dígitos (para evitar falsos positivos)
+        $porcentagemDigitos = ($apenasDigitos.Length / $Texto.Length) * 100
+        return $porcentagemDigitos -ge 50
+    }
+    return $false
+}
+
+function Format-NumeroDocumento {
+    param([string]$Texto)
+    # Remove tudo que não é dígito (pontos, traços, barras, espaços, etc)
+    $numeroLimpo = $Texto -replace '[^0-9]', ''
+    return $numeroLimpo
+}
+
 function New-PastaTemporaria {
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
     $downloadsPath = [Environment]::GetFolderPath('UserProfile') + "\Downloads"
@@ -896,7 +918,17 @@ $btnPesquisar.Add_Click({
     }
     
     $script:BuscaEmAndamento = $true
-    $nomeBusca = Format-NomeBusca -NomeDigitado $nomeDigitado
+
+    # Detectar se é busca por documento (CPF/CNPJ) ou por nome/rua
+    $isBuscaDocumento = Test-IsDocumento -Texto $nomeDigitado
+    if ($isBuscaDocumento) {
+        $nomeBusca = Format-NumeroDocumento -Texto $nomeDigitado
+        Write-Host "Detectada busca por documento: $nomeBusca"
+    } else {
+        $nomeBusca = Format-NomeBusca -NomeDigitado $nomeDigitado
+        Write-Host "Detectada busca por nome/rua: $nomeBusca"
+    }
+
     $logFilePath = Join-Path $script:PastaTemporaria "busca_log.txt"
     $script:FileCountFile = Join-Path $script:PastaTemporaria "file_count.txt"
 
@@ -913,7 +945,7 @@ $btnPesquisar.Add_Click({
 
     # --- Script da Busca (ScriptBlock) ---
     $scriptBlock = {
-        param($CaminhoBase, $PadraoNome, $PastaIgnorar, $LogPath, $CountFilePath)
+        param($CaminhoBase, $PadraoNome, $PastaIgnorar, $LogPath, $CountFilePath, $IsBuscaDocumento)
         
         # --- Funções auxiliares (devem ser redefinidas dentro do job) ---
         function Write-Log-Local {
@@ -961,12 +993,22 @@ $btnPesquisar.Add_Click({
                     foreach ($arquivo in $files) {
                         $nomeArquivo = [System.IO.Path]::GetFileName($arquivo)
                         $nomeArquivoNormalizado = (Remove-Acentos-Local -Texto $nomeArquivo).ToUpper()
-                        
+
+                        # Padrão 1: Busca substring (para nomes e ruas)
                         $matchPadrao1 = $nomeArquivoNormalizado.Contains($PadraoNome)
+
+                        # Padrão 2: Busca exata no nome base (para nomes completos)
                         $nomeBaseNormalizado = Get-NomeBaseNormalizado -CaminhoArquivo $nomeArquivo
                         $matchPadrao2 = $nomeBaseNormalizado -eq $PadraoNome
 
-                        if ($matchPadrao1 -or $matchPadrao2) {
+                        # Padrão 3: Busca por documento (CPF/CNPJ) - termina com -[NUMERO].pdf
+                        $matchPadrao3 = $false
+                        if ($IsBuscaDocumento) {
+                            # Verifica se o nome do arquivo termina com -[NUMERO].pdf
+                            $matchPadrao3 = $nomeArquivo -match "-$PadraoNome\.pdf$"
+                        }
+
+                        if ($matchPadrao1 -or $matchPadrao2 -or $matchPadrao3) {
                             $arquivosEncontrados.Add($arquivo)
                             Write-Log-Local "ENCONTRADO: $nomeArquivo"
                             # Atualizar arquivo de contagem em tempo real
@@ -999,7 +1041,7 @@ $btnPesquisar.Add_Click({
     } # --- Fim do ScriptBlock ---
     
     # 1. Inicia o Job em um processo separado
-    $script:job = Start-Job -ScriptBlock $scriptBlock -ArgumentList $script:CaminhoBase, $nomeBusca, $script:PastaIgnorar, $logFilePath, $script:FileCountFile
+    $script:job = Start-Job -ScriptBlock $scriptBlock -ArgumentList $script:CaminhoBase, $nomeBusca, $script:PastaIgnorar, $logFilePath, $script:FileCountFile, $isBuscaDocumento
     
     # 2. Para o timer antigo, se existir
     if ($script:timer -and $script:timer.IsEnabled) {
