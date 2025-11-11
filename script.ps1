@@ -1,0 +1,1094 @@
+﻿#Requires -Version 5.1
+# Sistema de Busca de Fichas com Interface WPF Moderna
+
+# Adicionar assemblies necessários
+Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+# --- CONFIGURAÇÃO OBRATÓRIA ---
+$script:GhostscriptExePath = "C:\Program Files\gs\gs10.06.0\bin\gswin64.exe"
+# --- FIM DA CONFIGURAÇÃO ---
+
+# Configurações globais
+$script:CaminhoBase = "\\192.168.20.100\TRABALHO\TRANSITO\FICHAS INDISPONIBILIDADE NOVAS RENOMEADAS"
+$script:PastaIgnorar = "\\192.168.20.100\TRABALHO\TRANSITO\FICHAS INDISPONIBILIDADE NOVAS RENOMEADAS\INDICADOR REAL"
+$script:PastaTemporaria = $null
+$script:ArquivosEncontrados = @()
+$script:BuscaEmAndamento = $false
+$script:TemaAtual = "Light"
+$script:job = $null # Variavel para armazenar o Job
+$script:timer = $null # Variavel para o timer
+
+# Funções Auxiliares (Escopo Global)
+function Remove-Acentos {
+    param([string]$Texto)
+    $comAcentos = "ÀÁÂÃÄÅàáâãäåÈÉÊËèéêëÌÍÎÏìíîïÒÓÔÕÖòóôõöÙÚÛÜùúûüÝýÿÑñÇç"
+    $semAcentos = "AAAAAAaaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuYyyNnCc"
+    $resultado = $Texto
+    for ($i = 0; $i -lt $comAcentos.Length; $i++) {
+        $resultado = $resultado.Replace($comAcentos[$i], $semAcentos[$i])
+    }
+    return $resultado
+}
+
+function Format-NomeBusca {
+    param([string]$NomeDigitado)
+    $nome = $NomeDigitado.Trim() -replace '\s+', ' '
+    $nome = Remove-Acentos -Texto $nome
+    $nome = $nome.ToUpper()
+    $nome = $nome.Replace(' ', '_')
+    return $nome
+}
+
+function New-PastaTemporaria {
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $downloadsPath = [Environment]::GetFolderPath('UserProfile') + "\Downloads"
+    $pastaTemp = Join-Path $downloadsPath "BuscaFichas_$timestamp"
+    try {
+        New-Item -Path $pastaTemp -ItemType Directory -Force | Out-Null
+        return $pastaTemp
+    }
+    catch {
+        Write-Error "Erro ao criar pasta temporária: $_"
+        return $null
+    }
+}
+
+function Remove-PastaTemporaria {
+    param([string]$Caminho)
+    if ($Caminho -and (Test-Path $Caminho)) {
+        try {
+            if ($script:imgPreview -and $script:imgPreview.Source) {
+                 $script:imgPreview.Source = $null 
+                 [GC]::Collect()
+            }
+            Remove-Item -Path $Caminho -Recurse -Force -ErrorAction Stop
+            return $true
+        } catch {
+            Start-Sleep -Milliseconds 500
+            try {
+                Remove-Item -Path $Caminho -Recurse -Force -ErrorAction Stop
+                return $true
+            }
+            catch {
+                Write-Error "Não foi possível remover '$Caminho': $_"
+                return $false
+            }
+        }
+    }
+    return $true
+}
+
+function Generate-PdfPreviewImage {
+    param([string]$PdfPath)
+
+    if (-not (Test-Path $script:GhostscriptExePath)) {
+        Write-Error "Ghostscript não encontrado."
+        return $null
+    }
+
+    $baseOutputName = "preview_page"
+    $outputPattern = Join-Path $script:PastaTemporaria ($baseOutputName + "_%d.png")
+    $finalStitchedPath = Join-Path $script:PastaTemporaria "preview.png"
+
+    Get-ChildItem -Path $script:PastaTemporaria -Filter "preview*.png" | Remove-Item -Force -ErrorAction SilentlyContinue
+
+    $arguments = @(
+        "-dNOPAUSE", "-dBATCH", "-dSAFER", "-dQUIET", 
+        "-sDEVICE=png16m", "-r150", 
+        "-dFirstPage=1", "-dLastPage=2", 
+        "-sOutputFile=`"$outputPattern`"", "`"$PdfPath`""
+    )
+
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $script:GhostscriptExePath
+        $psi.Arguments = $arguments -join " "
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $proc = New-Object System.Diagnostics.Process
+        $proc.StartInfo = $psi
+        $proc.Start() | Out-Null
+        $proc.WaitForExit()
+
+        if ($proc.ExitCode -ne 0) { return $null }
+    } catch { return $null }
+
+    $generatedFiles = Get-ChildItem -Path $script:PastaTemporaria -Filter ($baseOutputName + "_*.png") | Sort-Object Name
+    if ($generatedFiles.Count -eq 0) { return $null }
+
+    $imageList = [System.Collections.Generic.List[System.Drawing.Image]]::new()
+    $totalHeight = 0
+    $maxWidth = 0
+    $canvas = $null
+    $graphics = $null
+
+    try {
+        foreach ($file in $generatedFiles) {
+            $fileStream = New-Object System.IO.FileStream($file.FullName, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read)
+            $memoryStream = New-Object System.IO.MemoryStream
+            $fileStream.CopyTo($memoryStream)
+            $fileStream.Close(); $fileStream.Dispose()
+            $memoryStream.Position = 0
+            $img = [System.Drawing.Image]::FromStream($memoryStream)
+            $memoryStream.Dispose()
+
+            $imageList.Add($img)
+            $totalHeight += $img.Height
+            if ($img.Width -gt $maxWidth) { $maxWidth = $img.Width }
+        }
+
+        if ($maxWidth -eq 0 -or $totalHeight -eq 0) { throw "Dimensões inválidas." }
+
+        $canvas = New-Object System.Drawing.Bitmap($maxWidth, $totalHeight)
+        $graphics = [System.Drawing.Graphics]::FromImage($canvas)
+        $graphics.Clear([System.Drawing.Color]::White)
+
+        $currentY = 0
+        foreach ($img in $imageList) {
+            $graphics.DrawImage($img, 0, $currentY)
+            $currentY += $img.Height
+        }
+
+        $canvas.Save($finalStitchedPath, [System.Drawing.Imaging.ImageFormat]::Png)
+        return $finalStitchedPath
+    } catch {
+        return $null
+    } finally {
+        if ($graphics) { $graphics.Dispose() }
+        if ($canvas) { $canvas.Dispose() }
+        foreach ($img in $imageList) { $img.Dispose() }
+        foreach ($file in $generatedFiles) { try { Remove-Item $file.FullName -Force -ErrorAction SilentlyContinue } catch {} }
+    }
+}
+
+
+# XAML 
+[xml]$xaml = @"
+<Window 
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Sistema de Busca de Fichas - Ultra Modern UI"
+    Height="900" Width="1400"
+    WindowStartupLocation="CenterScreen"
+    WindowState="Maximized"
+    Background="Transparent"
+    AllowsTransparency="True"
+    WindowStyle="None">
+    
+    <Window.Resources>
+        <SolidColorBrush x:Key="LightSolidDark" Color="#3a3a3a"/>
+        <SolidColorBrush x:Key="LightSolidDarkAlt" Color="#4a4a4a"/>
+        <SolidColorBrush x:Key="LightCreamBackground" Color="#FAF7F2"/>
+        <LinearGradientBrush x:Key="LightBackground" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#F5F5F5" Offset="0"/>
+            <GradientStop Color="#EEEEEE" Offset="0.5"/>
+            <GradientStop Color="#E8E8E8" Offset="1"/>
+        </LinearGradientBrush>
+        
+        <LinearGradientBrush x:Key="DarkMainGradient" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#1a1a1a" Offset="0"/>
+            <GradientStop Color="#2d2d2d" Offset="1"/>
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="DarkSecondaryGradient" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#2a2a2a" Offset="0"/>
+            <GradientStop Color="#3a3a3a" Offset="1"/>
+        </LinearGradientBrush>
+        <LinearGradientBrush x:Key="DarkBackground" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#000000" Offset="0"/>
+            <GradientStop Color="#0a0a0a" Offset="0.5"/>
+            <GradientStop Color="#050505" Offset="1"/>
+        </LinearGradientBrush>
+        
+        <Style x:Key="ToggleSwitch" TargetType="CheckBox">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Grid>
+                            <Border Name="BackgroundBorder" Width="60" Height="30" CornerRadius="15" Background="#3a3a3a">
+                                <Border.Effect><DropShadowEffect ShadowDepth="2" Opacity="0.3" BlurRadius="5"/></Border.Effect>
+                            </Border>
+                            <Ellipse Name="ToggleCircle" Width="26" Height="26" Fill="White" HorizontalAlignment="Left" Margin="2,0,0,0">
+                                <Ellipse.RenderTransform><TranslateTransform x:Name="ToggleTransform" X="0"/></Ellipse.RenderTransform>
+                                <Ellipse.Effect><DropShadowEffect ShadowDepth="1" Opacity="0.3" BlurRadius="3"/></Ellipse.Effect>
+                            </Ellipse>
+                            <TextBlock Name="ThemeIcon" Text="☀️" FontSize="16" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="7,0,0,0"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Trigger.EnterActions><BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="ToggleTransform" Storyboard.TargetProperty="X" To="30" Duration="0:0:0.3">
+                                            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <ColorAnimation Storyboard.TargetName="BackgroundBorder" Storyboard.TargetProperty="Background.Color" To="#1a1a1a" Duration="0:0:0.3"/>
+                                    </Storyboard>
+                                </BeginStoryboard></Trigger.EnterActions>
+                                <Setter TargetName="ThemeIcon" Property="Text" Value="🌙"/>
+                                <Setter TargetName="ThemeIcon" Property="Margin" Value="33,0,0,0"/>
+                                <Setter TargetName="ToggleCircle" Property="Fill" Value="#666666"/>
+                            </Trigger>
+                             <Trigger Property="IsChecked" Value="False">
+                                <Trigger.EnterActions><BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="ToggleTransform" Storyboard.TargetProperty="X" To="0" Duration="0:0:0.3">
+                                            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <ColorAnimation Storyboard.TargetName="BackgroundBorder" Storyboard.TargetProperty="Background.Color" To="#3a3a3a" Duration="0:0:0.3"/>
+                                    </Storyboard>
+                                </BeginStoryboard></Trigger.EnterActions>
+                                <Setter TargetName="ThemeIcon" Property="Text" Value="☀️"/>
+                                <Setter TargetName="ThemeIcon" Property="Margin" Value="7,0,0,0"/>
+                                <Setter TargetName="ToggleCircle" Property="Fill" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        
+        <Style x:Key="ModernButton" TargetType="Button">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="20,12"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Name="border" Background="{TemplateBinding Background}" CornerRadius="25" Padding="{TemplateBinding Padding}">
+                            <Border.Effect><DropShadowEffect ShadowDepth="3" Opacity="0.3" BlurRadius="10"/></Border.Effect>
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="RenderTransform">
+                                    <Setter.Value><ScaleTransform ScaleX="1.05" ScaleY="1.05" CenterX="50" CenterY="25"/></Setter.Value>
+                                </Setter>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="RenderTransform">
+                                    <Setter.Value><ScaleTransform ScaleX="0.95" ScaleY="0.95" CenterX="50" CenterY="25"/></Setter.Value>
+                                </Setter>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="#FAF7F2"/>
+            <Setter Property="CornerRadius" Value="15"/>
+            <Setter Property="Padding" Value="20"/>
+            <Setter Property="Margin" Value="10"/>
+            <Setter Property="Effect">
+                <Setter.Value><DropShadowEffect ShadowDepth="5" Opacity="0.15" BlurRadius="20"/></Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    
+    <Border Name="MainBorder" Background="{StaticResource LightBackground}" CornerRadius="0">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="40"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            
+            <Border Name="TitleBar" Grid.Row="0" Background="#3a3a3a">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <TextBlock Grid.Column="0" Name="TitleText" Text="🔍 SISTEMA DE BUSCA AVANÇADA" Foreground="#F5F5F5" FontSize="14" FontWeight="Bold" VerticalAlignment="Center" Margin="15,0,0,0"/>
+                    
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
+                        <TextBlock Name="ThemeLabel" Text="Tema: " Foreground="#F5F5F5" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <CheckBox Name="ThemeToggle" Style="{StaticResource ToggleSwitch}"/>
+                    </StackPanel>
+                    
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Name="btnMinimize" Content="―" Width="45" Height="40" Background="Transparent" Foreground="#F5F5F5" BorderThickness="0" FontSize="16" Cursor="Hand"/>
+                        <Button Name="btnMaximize" Content="▢" Width="45" Height="40" Background="Transparent" Foreground="#F5F5F5" BorderThickness="0" FontSize="16" Cursor="Hand"/>
+                        <Button Name="btnClose" Content="✕" Width="45" Height="40" Background="#50FF0000" Foreground="White" BorderThickness="0" FontSize="16" Cursor="Hand"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+            
+            <Grid Grid.Row="1" Margin="20">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                
+                <Border Grid.Row="0" Name="SearchCard" Style="{StaticResource CardStyle}" Background="{StaticResource LightSolidDark}" Margin="0,0,0,20">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        
+                        <TextBlock Grid.Row="0" Name="SearchTitle" Text="🔎 BUSCAR FICHAS DE INDISPONIBILIDADE" Foreground="#F5F5F5" FontSize="28" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,20">
+                            <TextBlock.Effect><DropShadowEffect ShadowDepth="2" Opacity="0.3"/></TextBlock.Effect>
+                        </TextBlock>
+                        
+                        <Grid Grid.Row="1" Margin="0,0,0,15">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <Border Grid.Column="0" Name="SearchInputBorder" Background="#555555" CornerRadius="30" Margin="0,0,10,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Name="SearchIcon" Text="👤" FontSize="20" VerticalAlignment="Center" Margin="15,0,10,0" Foreground="#F5F5F5"/>
+                                    <TextBox Grid.Column="1" Name="txtBusca" Background="Transparent" Foreground="#F5F5F5" BorderThickness="0" VerticalAlignment="Center" FontSize="18" Padding="10,8"/>
+                                </Grid>
+                            </Border>
+                            
+                            <Button Grid.Column="1" Name="btnPesquisar" Style="{StaticResource ModernButton}" Background="{StaticResource LightSolidDarkAlt}" Width="150">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="🔍 " FontSize="18"/>
+                                    <TextBlock Text="BUSCAR" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                        
+                        <TextBlock Grid.Row="2" Name="lblStatus" Text="Sistema pronto para busca..." Foreground="#F5F5F5" FontSize="14" HorizontalAlignment="Center" FontStyle="Italic" Opacity="0.9"/>
+                        
+                        <Button Grid.Row="3" Name="btnAbrirPasta" Style="{StaticResource ModernButton}" Background="{StaticResource LightSolidDarkAlt}" Visibility="Collapsed" HorizontalAlignment="Center" Margin="0,10,0,0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="📁 " FontSize="18"/>
+                                <TextBlock Text="ABRIR PASTA" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Border>
+                
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="1*"/>
+                        <ColumnDefinition Width="1*"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <Border Grid.Column="0" Name="ResultsCard" Style="{StaticResource CardStyle}" Margin="0,0,10,0" Background="{StaticResource LightCreamBackground}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            
+                            <Border Grid.Row="0" Name="ResultsHeader" Background="{StaticResource LightSolidDark}" CornerRadius="10" Margin="-10,-10,-10,10">
+                                <TextBlock Name="ResultsHeaderText" Text="📋 RESULTADOS" Foreground="#F5F5F5" FontSize="18" FontWeight="Bold" Margin="15,10"/>
+                            </Border>
+                            
+                            <ListBox Grid.Row="1" Name="lstResultados" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" FontSize="14">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="Background" Value="#FFFFFF"/>
+                                        <Setter Property="Foreground" Value="#333333"/>
+                                        <Setter Property="Margin" Value="0,2"/>
+                                        <Setter Property="Padding" Value="10,8"/>
+                                        <Setter Property="BorderBrush" Value="#E0E0E0"/>
+                                        <Setter Property="BorderThickness" Value="0,0,0,1"/>
+                                        <Style.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter Property="Background" Value="#F0F0F0"/>
+                                            </Trigger>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter Property="Background" Value="#4a4a4a"/>
+                                                <Setter Property="Foreground" Value="White"/>
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+                    
+                    <Border Grid.Column="1" Name="PreviewCard" Style="{StaticResource CardStyle}" Margin="10,0,0,0" Background="{StaticResource LightCreamBackground}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            
+                            <Border Grid.Row="0" Name="PreviewHeader" Background="{StaticResource LightSolidDark}" CornerRadius="10" Margin="-10,-10,-10,10">
+                                <TextBlock Name="PreviewHeaderText" Text="👁 VISUALIZAÇÃO" Foreground="#F5F5F5" FontSize="18" FontWeight="Bold" Margin="15,10"/>
+                            </Border>
+                            
+                            <ScrollViewer Grid.Row="1" Name="scrollPreview" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                                <Grid>
+                                    <Image Name="imgPreview" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" Cursor="Hand"/>
+                                    <TextBlock Name="lblNoPreview" Text="Selecione um arquivo para visualizar" FontSize="16" Foreground="#666666" FontStyle="Italic" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <ProgressBar Name="progressPreview" IsIndeterminate="True" Height="5" VerticalAlignment="Top" Visibility="Collapsed"/>
+                                </Grid>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Grid>
+            
+            <Border Name="PopupOverlay" Grid.RowSpan="2" Background="#80000000" Visibility="Collapsed">
+                <Border Name="PopupContent" Background="White" CornerRadius="20" Width="400" Height="200" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Border.RenderTransform><ScaleTransform x:Name="PopupScale" ScaleX="0" ScaleY="0" CenterX="200" CenterY="100"/></Border.RenderTransform>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Name="PopupIcon" Text="✅" FontSize="50" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Row="1" Name="PopupMessage" Text="Mensagem" FontSize="18" FontWeight="SemiBold" Foreground="Black" HorizontalAlignment="Center" Margin="0,5"/>
+                        <Button Grid.Row="2" Name="PopupButton" Content="OK" Width="100" Height="35" Margin="0,10,0,20" HorizontalAlignment="Center" Background="{StaticResource LightSolidDark}" Foreground="White" FontWeight="Bold" BorderThickness="0" Cursor="Hand"/>
+                    </Grid>
+                </Border>
+            </Border>
+            
+            <Border Name="loadingOverlay" Grid.RowSpan="2" Background="#80000000" Visibility="Collapsed">
+                <Border Name="LoadingContent" Background="White" CornerRadius="20" Width="300" Height="150" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Name="LoadingIcon" Text="⏳" FontSize="40" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Row="1" Name="lblLoading" Text="Processando..." FontSize="16" Foreground="Black" HorizontalAlignment="Center" Margin="0,5"/>
+                        <ProgressBar Grid.Row="2" IsIndeterminate="True" Height="5" Margin="30,10,30,20"/>
+                    </Grid>
+                </Border>
+            </Border>
+        </Grid>
+    </Border>
+</Window>
+"@
+
+$reader = New-Object System.Xml.XmlNodeReader $xaml
+$window = [Windows.Markup.XamlReader]::Load($reader)
+
+## ATRIBUIÇÃO DE CONTROLES (GARANTE QUE AS VARIÁVEIS EXISTEM)
+$mainBorder = $window.FindName("MainBorder")
+$titleBar = $window.FindName("TitleBar")
+$titleText = $window.FindName("TitleText")
+$themeLabel = $window.FindName("ThemeLabel")
+$themeToggle = $window.FindName("ThemeToggle")
+$txtBusca = $window.FindName("txtBusca")
+$searchIcon = $window.FindName("SearchIcon")
+$btnPesquisar = $window.FindName("btnPesquisar")
+$btnAbrirPasta = $window.FindName("btnAbrirPasta")
+$lblStatus = $window.FindName("lblStatus")
+$lstResultados = $window.FindName("lstResultados")
+$imgPreview = $window.FindName("imgPreview")
+$lblNoPreview = $window.FindName("lblNoPreview")
+$progressPreview = $window.FindName("progressPreview")
+$loadingOverlay = $window.FindName("loadingOverlay")
+$loadingContent = $window.FindName("LoadingContent")
+$lblLoading = $window.FindName("lblLoading")
+$scrollPreview = $window.FindName("scrollPreview")
+$searchCard = $window.FindName("SearchCard")
+$searchTitle = $window.FindName("SearchTitle")
+$searchInputBorder = $window.FindName("SearchInputBorder")
+$resultsCard = $window.FindName("ResultsCard")
+$resultsHeader = $window.FindName("ResultsHeader")
+$resultsHeaderText = $window.FindName("ResultsHeaderText")
+$previewCard = $window.FindName("PreviewCard")
+$previewHeader = $window.FindName("PreviewHeader")
+$previewHeaderText = $window.FindName("PreviewHeaderText")
+$popupOverlay = $window.FindName("PopupOverlay")
+$popupContent = $window.FindName("PopupContent")
+$popupIcon = $window.FindName("PopupIcon")
+$popupMessage = $window.FindName("PopupMessage")
+$popupButton = $window.FindName("PopupButton")
+$popupScale = $window.FindName("PopupScale")
+$btnMinimize = $window.FindName("btnMinimize")
+$btnMaximize = $window.FindName("btnMaximize")
+$btnClose = $window.FindName("btnClose")
+
+# --- FUNÇÃO DE TEMA CORRIGIDA ---
+function Toggle-Theme { 
+    param([bool]$IsDark) { 
+        
+        try { # Adicionado Try/Catch para depuração
+            
+            # 1. Definição de Cores (Método Direto e Robusto)
+            $brush_White = [System.Windows.Media.Brushes]::White
+            $brush_Black = [System.Windows.Media.Brushes]::Black
+            $brush_F5F5F5 = [System.Windows.Media.SolidColorBrush]"#F5F5F5"
+            $brush_CCCCCC = [System.Windows.Media.SolidColorBrush]"#CCCCCC"
+            $brush_AAAAAA = [System.Windows.Media.SolidColorBrush]"#AAAAAA"
+            $brush_DDDDDD = [System.Windows.Media.SolidColorBrush]"#DDDDDD"
+            $brush_666666 = [System.Windows.Media.SolidColorBrush]"#666666"
+            $brush_333333 = [System.Windows.Media.SolidColorBrush]"#333333"
+            $brush_F0F0F0 = [System.Windows.Media.SolidColorBrush]"#F0F0F0"
+            
+            $brush_1a1a1a = [System.Windows.Media.SolidColorBrush]"#1a1a1a"
+            $brush_2a2a2a = [System.Windows.Media.SolidColorBrush]"#2a2a2a"
+            $brush_3a3a3a = [System.Windows.Media.SolidColorBrush]"#3a3a3a"
+            $brush_4a4a4a = [System.Windows.Media.SolidColorBrush]"#4a4a4a"
+            $brush_555555 = [System.Windows.Media.SolidColorBrush]"#555555"
+            
+            $brush_TransWhite = [System.Windows.Media.SolidColorBrush]"#10FFFFFF"
+            $brush_TransRed = [System.Windows.Media.SolidColorBrush]"#50FF0000"
+            $brush_TransRedDark = [System.Windows.Media.SolidColorBrush]"#50CC0000"
+            $brush_TransGray = [System.Windows.Media.SolidColorBrush]"#20888888"
+
+            if ($IsDark) {
+                $script:TemaAtual = "Dark"
+                $mainBorder.Background = $window.FindResource("DarkBackground")
+                $titleBar.Background = $brush_TransWhite
+                $titleText.Foreground = $brush_CCCCCC
+                $themeLabel.Foreground = $brush_CCCCCC
+                $btnMinimize.Foreground = $brush_CCCCCC
+                $btnMaximize.Foreground = $brush_CCCCCC
+                $btnClose.Background = $brush_TransRedDark
+                $btnClose.Foreground = $brush_CCCCCC
+                $searchCard.Background = $window.FindResource("DarkMainGradient")
+                $searchTitle.Foreground = $brush_CCCCCC
+                $searchInputBorder.Background = $brush_TransGray
+                $searchIcon.Foreground = $brush_AAAAAA
+                $txtBusca.Foreground = $brush_DDDDDD
+                $lblStatus.Foreground = $brush_AAAAAA
+                $btnPesquisar.Background = $window.FindResource("DarkSecondaryGradient")
+                $btnPesquisar.Foreground = $brush_CCCCCC
+                $btnAbrirPasta.Background = $window.FindResource("DarkSecondaryGradient")
+                $btnAbrirPasta.Foreground = $brush_CCCCCC
+                $resultsCard.Background = $brush_1a1a1a
+                $resultsHeader.Background = $window.FindResource("DarkSecondaryGradient")
+                $resultsHeaderText.Foreground = $brush_CCCCCC
+                $previewCard.Background = $brush_1a1a1a
+                $previewHeader.Background = $window.FindResource("DarkSecondaryGradient")
+                $previewHeaderText.Foreground = $brush_CCCCCC
+                $lblNoPreview.Foreground = $brush_666666
+                $popupContent.Background = $brush_2a2a2a
+                $popupMessage.Foreground = $brush_CCCCCC
+                $popupButton.Background = $window.FindResource("DarkSecondaryGradient")
+                $loadingContent.Background = $brush_2a2a2a
+                $lblLoading.Foreground = $brush_CCCCCC
+                
+                # --- Estilo da Lista (Dark) ---
+                $lstResultados.Resources.Clear()
+                $newStyle = New-Object System.Windows.Style([System.Windows.Controls.ListBoxItem])
+                $newStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_2a2a2a)))
+                $newStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::ForegroundProperty, $brush_CCCCCC)))
+                $hoverTrigger = New-Object System.Windows.Trigger
+                $hoverTrigger.Property = [System.Windows.Controls.ListBoxItem]::IsMouseOverProperty
+                $hoverTrigger.Value = $true
+                $hoverTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_3a3a3a)))
+                $newStyle.Triggers.Add($hoverTrigger)
+                $selectedTrigger = New-Object System.Windows.Trigger
+                $selectedTrigger.Property = [System.Windows.Controls.ListBoxItem]::IsSelectedProperty
+                $selectedTrigger.Value = $true
+                $selectedTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_4a4a4a)))
+                $selectedTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::ForegroundProperty, $brush_White)))
+                $newStyle.Triggers.Add($selectedTrigger)
+                $lstResultados.ItemContainerStyle = $newStyle
+                
+            } else {
+                $script:TemaAtual = "Light"
+                $mainBorder.Background = $window.FindResource("LightBackground")
+                $titleBar.Background = $window.FindResource("LightSolidDark")
+                $titleText.Foreground = $brush_F5F5F5
+                $themeLabel.Foreground = $brush_F5F5F5
+                $btnMinimize.Foreground = $brush_F5F5F5
+                $btnMaximize.Foreground = $brush_F5F5F5
+                $btnClose.Background = $brush_TransRed
+                $btnClose.Foreground = $brush_White
+                $searchCard.Background = $window.FindResource("LightSolidDark")
+                $searchTitle.Foreground = $brush_F5F5F5
+                $searchInputBorder.Background = $brush_555555
+                $searchIcon.Foreground = $brush_F5F5F5
+                $txtBusca.Foreground = $brush_F5F5F5
+                $lblStatus.Foreground = $brush_F5F5F5
+                $btnPesquisar.Background = $window.FindResource("LightSolidDarkAlt")
+                $btnPesquisar.Foreground = $brush_F5F5F5
+                $btnAbrirPasta.Background = $window.FindResource("LightSolidDarkAlt")
+                $btnAbrirPasta.Foreground = $brush_F5F5F5
+                $resultsCard.Background = $window.FindResource("LightCreamBackground")
+                $resultsHeader.Background = $window.FindResource("LightSolidDark")
+                $resultsHeaderText.Foreground = $brush_F5F5F5
+                $previewCard.Background = $window.FindResource("LightCreamBackground")
+                $previewHeader.Background = $window.FindResource("LightSolidDark")
+                $previewHeaderText.Foreground = $brush_F5F5F5
+                $lblNoPreview.Foreground = $brush_666666
+                $popupContent.Background = $brush_White
+                $popupMessage.Foreground = $brush_Black
+                $popupButton.Background = $window.FindResource("LightSolidDark")
+                $loadingContent.Background = $brush_White
+                $lblLoading.Foreground = $brush_Black
+                
+                # --- Estilo da Lista (Light) ---
+                $lstResultados.Resources.Clear()
+                $newStyle = New-Object System.Windows.Style([System.Windows.Controls.ListBoxItem])
+                $newStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_White)))
+                $newStyle.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::ForegroundProperty, $brush_333333)))
+                $hoverTrigger = New-Object System.Windows.Trigger
+                $hoverTrigger.Property = [System.Windows.Controls.ListBoxItem]::IsMouseOverProperty
+                $hoverTrigger.Value = $true
+                $hoverTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_F0F0F0)))
+                $newStyle.Triggers.Add($hoverTrigger)
+                $selectedTrigger = New-Object System.Windows.Trigger
+                $selectedTrigger.Property = [System.Windows.Controls.ListBoxItem]::IsSelectedProperty
+                $selectedTrigger.Value = $true
+                $selectedTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::BackgroundProperty, $brush_4a4a4a)))
+                $selectedTrigger.Setters.Add((New-Object System.Windows.Setter([System.Windows.Controls.Control]::ForegroundProperty, $brush_White)))
+                $newStyle.Triggers.Add($selectedTrigger)
+                $lstResultados.ItemContainerStyle = $newStyle
+            }
+        }
+        catch {
+            # Se qualquer linha acima falhar, este pop-up será exibido.
+            Show-Popup -Icon "❌" -Message "Erro ao trocar tema: $($_.Exception.Message)" -Type "Error"
+        }
+    }
+}
+# --- FIM DA FUNÇÃO DE TEMA ---
+
+# --- FUNÇÃO SHOW-POPUP CORRIGIDA ---
+function Show-Popup { 
+    param([string]$Icon, [string]$Message, [string]$Type = "Success") { 
+        $popupIcon.Text = $Icon
+        $popupMessage.Text = $Message
+        
+        if ($script:TemaAtual -eq "Dark") {
+            $popupContent.Background = [System.Windows.Media.SolidColorBrush]"#2a2a2a"
+            $popupMessage.Foreground = [System.Windows.Media.SolidColorBrush]"#CCCCCC"
+            $popupButton.Background = $window.FindResource("DarkSecondaryGradient")
+        } else {
+            $popupContent.Background = [System.Windows.Media.Brushes]::White
+            $popupMessage.Foreground = [System.Windows.Media.Brushes]::Black
+            $popupButton.Background = $window.FindResource("LightSolidDark")
+        }
+        
+        switch ($Type) {
+            "Success" { $popupIcon.Foreground = [System.Windows.Media.Brushes]::Green }
+            "Error" { $popupIcon.Foreground = [System.Windows.Media.Brushes]::Red }
+            "Warning" { $popupIcon.Foreground = [System.Windows.Media.Brushes]::Orange }
+            "Info" { $popupIcon.Foreground = [System.Windows.Media.Brushes]::Blue }
+        }
+        
+        $popupOverlay.Visibility = 'Visible'
+        $storyboard = New-Object System.Windows.Media.Animation.Storyboard
+        $scaleXAnimation = New-Object System.Windows.Media.Animation.DoubleAnimation
+        $scaleXAnimation.From = 0; $scaleXAnimation.To = 1
+        $scaleXAnimation.Duration = [System.Windows.Duration]::new([System.TimeSpan]::FromMilliseconds(300))
+        $scaleXAnimation.EasingFunction = New-Object System.Windows.Media.Animation.BackEase
+        $scaleXAnimation.EasingFunction.EasingMode = 'EaseOut'
+        $scaleYAnimation = New-Object System.Windows.Media.Animation.DoubleAnimation
+        $scaleYAnimation.From = 0; $scaleYAnimation.To = 1
+        $scaleYAnimation.Duration = [System.Windows.Duration]::new([System.TimeSpan]::FromMilliseconds(300))
+        $scaleYAnimation.EasingFunction = New-Object System.Windows.Media.Animation.BackEase
+        $scaleYAnimation.EasingFunction.EasingMode = 'EaseOut'
+        
+        [System.Windows.Media.Animation.Storyboard]::SetTarget($scaleXAnimation, $popupScale)
+        [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($scaleXAnimation, 'ScaleX')
+        [System.Windows.Media.Animation.Storyboard]::SetTarget($scaleYAnimation, $popupScale)
+        [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($scaleYAnimation, 'ScaleY')
+        
+        $storyboard.Children.Add($scaleXAnimation)
+        $storyboard.Children.Add($scaleYAnimation)
+        $storyboard.Begin()
+    }
+}
+# --- FIM DA FUNÇÃO SHOW-POPUP ---
+
+function Hide-Popup {
+    $storyboard = New-Object System.Windows.Media.Animation.Storyboard
+    $scaleXAnimation = New-Object System.Windows.Media.Animation.DoubleAnimation
+    $scaleXAnimation.From = 1; $scaleXAnimation.To = 0
+    $scaleXAnimation.Duration = [System.Windows.Duration]::new([System.TimeSpan]::FromMilliseconds(200))
+    $scaleYAnimation = New-Object System.Windows.Media.Animation.DoubleAnimation
+    $scaleYAnimation.From = 1; $scaleYAnimation.To = 0
+    $scaleYAnimation.Duration = [System.Windows.Duration]::new([System.TimeSpan]::FromMilliseconds(200))
+    
+    [System.Windows.Media.Animation.Storyboard]::SetTarget($scaleXAnimation, $popupScale)
+    [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($scaleXAnimation, 'ScaleX')
+    [System.Windows.Media.Animation.Storyboard]::SetTarget($scaleYAnimation, $popupScale)
+    [System.Windows.Media.Animation.Storyboard]::SetTargetProperty($scaleYAnimation, 'ScaleY')
+    
+    $storyboard.Children.Add($scaleXAnimation)
+    $storyboard.Children.Add($scaleYAnimation)
+    
+    $storyboard.Add_Completed({
+        $popupOverlay.Visibility = 'Collapsed'
+    })
+    $storyboard.Begin()
+}
+
+
+# Event Handlers
+
+$themeToggle.Add_Checked({ Toggle-Theme -IsDark $true })
+$themeToggle.Add_Unchecked({ Toggle-Theme -IsDark $false })
+$popupButton.Add_Click({ Hide-Popup })
+$titleBar.Add_MouseLeftButtonDown({ $window.DragMove() })
+$btnMinimize.Add_Click({ $window.WindowState = 'Minimized' })
+$btnMaximize.Add_Click({
+    if ($window.WindowState -eq 'Maximized') {
+        $window.WindowState = 'Normal'
+        $btnMaximize.Content = "▢"
+    } else {
+        $window.WindowState = 'Maximized'
+        $btnMaximize.Content = "◱"
+    }
+})
+
+$btnClose.Add_Click({
+    if ($script:PastaTemporaria) {
+        Remove-PastaTemporaria -Caminho $script:PastaTemporaria
+    }
+    if ($script:timer -and $script:timer.IsEnabled) {
+        $script:timer.Stop()
+    }
+    if ($script:job) {
+        Remove-Job -Job $script:job -Force
+        $script:job = $null
+    }
+    $window.Close()
+})
+
+$txtBusca.Add_KeyDown({
+    param($sender, $e)
+    if ($e.Key -eq 'Return') {
+        $btnPesquisar.RaiseEvent([System.Windows.RoutedEventArgs]::new([System.Windows.Controls.Button]::ClickEvent))
+    }
+})
+
+# --- BLOCO DE BUSCA (Start-Job) ---
+$btnPesquisar.Add_Click({
+    if ($script:BuscaEmAndamento) {
+        Show-Popup -Icon "⚠️" -Message "Busca já em andamento!" -Type "Warning"
+        return
+    }
+    
+    $nomeDigitado = $txtBusca.Text.Trim()
+    if ([string]::IsNullOrWhiteSpace($nomeDigitado)) {
+        Show-Popup -Icon "⚠️" -Message "Digite um nome para buscar!" -Type "Warning"
+        return
+    }
+    
+    # --- Limpeza e Preparação ---
+    $loadingOverlay.Visibility = 'Visible'
+    $lblLoading.Text = "Iniciando busca em segundo plano..."
+    $lblStatus.Text = "Buscando arquivos na rede..."
+    
+    $btnAbrirPasta.Visibility = 'Collapsed'
+    $lstResultados.Items.Clear()
+    $imgPreview.Source = $null
+    $lblNoPreview.Visibility = 'Visible'
+    $script:ArquivosEncontrados = @()
+    
+    if ($script:PastaTemporaria) {
+        Remove-PastaTemporaria -Caminho $script:PastaTemporaria
+    }
+    $script:PastaTemporaria = New-PastaTemporaria
+    if (-not $script:PastaTemporaria) {
+        $loadingOverlay.Visibility = 'Collapsed'
+        Show-Popup -Icon "❌" -Message "Não foi possível criar pasta temp." -Type "Error"
+        return
+    }
+    
+    $script:BuscaEmAndamento = $true
+    $nomeBusca = Format-NomeBusca -NomeDigitado $nomeDigitado
+    $logFilePath = Join-Path $script:PastaTemporaria "busca_log.txt"
+    
+    # --- Script da Busca (ScriptBlock) ---
+    $scriptBlock = {
+        param($CaminhoBase, $PadraoNome, $PastaIgnorar, $LogPath)
+        
+        # --- Funções auxiliares (devem ser redefinidas dentro do job) ---
+        function Write-Log-Local {
+            param([string]$Message)
+            $timestamp = Get-Date -Format "HH:mm:ss.fff"
+            Out-File -InputObject "[$timestamp] $Message" -FilePath $LogPath -Append -NoClobber -Encoding UTF8
+        }
+        
+        function Remove-Acentos-Local {
+            param([string]$Texto)
+            $comAcentos = "ÀÁÂÃÄÅàáâãäåÈÉÊËèéêëÌÍÎÏìíîïÒÓÔÕÖòóôõöÙÚÛÜùúûüÝýÿÑñÇç"
+            $semAcentos = "AAAAAAaaaaaaEEEEeeeeIIIIiiiiOOOOOoooooUUUUuuuuYyyNnCc"
+            $resultado = $Texto
+            for ($i = 0; $i -lt $comAcentos.Length; $i++) {
+                $resultado = $resultado.Replace($comAcentos[$i], $semAcentos[$i])
+            }
+            return $resultado
+        }
+        
+        function Get-NomeBaseNormalizado {
+            param($CaminhoArquivo)
+            $nomeBaseArquivo = [System.IO.Path]::GetFileNameWithoutExtension($CaminhoArquivo)
+            return (Remove-Acentos-Local -Texto $nomeBaseArquivo).ToUpper()
+        }
+        # --- Fim das funções auxiliares ---
+
+        Write-Log-Local "INÍCIO DA BUSCA (Job): Padrão: $PadraoNome"
+        $arquivosEncontrados = [System.Collections.Generic.List[string]]::new()
+        $pastasParaIgnorar = $PastaIgnorar.TrimEnd('\').ToUpper()
+
+        try {
+            function Search-FilesNet {
+                param([string]$Pasta)
+                
+                $pastaNormalizada = $Pasta.TrimEnd('\').ToUpper()
+                
+                if ($pastaNormalizada.Contains($pastasParaIgnorar)) {
+                    Write-Log-Local "IGNORADO: $Pasta"
+                    return
+                }
+                Write-Log-Local "PROCESSANDO PASTA: $Pasta"
+
+                try {
+                    $files = [System.IO.Directory]::EnumerateFiles($Pasta, "*.pdf", [System.IO.SearchOption]::TopDirectoryOnly)
+                    foreach ($arquivo in $files) {
+                        $nomeArquivo = [System.IO.Path]::GetFileName($arquivo)
+                        $nomeArquivoNormalizado = (Remove-Acentos-Local -Texto $nomeArquivo).ToUpper()
+                        
+                        $matchPadrao1 = $nomeArquivoNormalizado.Contains($PadraoNome)
+                        $nomeBaseNormalizado = Get-NomeBaseNormalizado -CaminhoArquivo $nomeArquivo
+                        $matchPadrao2 = $nomeBaseNormalizado -eq $PadraoNome
+
+                        if ($matchPadrao1 -or $matchPadrao2) {
+                            $arquivosEncontrados.Add($arquivo)
+                            Write-Log-Local "ENCONTRADO: $nomeArquivo"
+                        }
+                    }
+
+                    $subpastas = [System.IO.Directory]::EnumerateDirectories($Pasta, "*", [System.IO.SearchOption]::TopDirectoryOnly)
+                    foreach ($subpasta in $subpastas) {
+                        Search-FilesNet -Pasta $subpasta
+                    }
+                }
+                catch {
+                    $errorMsg = $_.Exception.Message
+                    Write-Log-Local "ERRO I/O em " + $Pasta + ": " + $errorMsg
+                }
+            }
+
+            Search-FilesNet -Pasta $CaminhoBase
+            Write-Log-Local "FIM DA BUSCA (Job): Encontrados $($arquivosEncontrados.Count) arquivos."
+            
+            return $arquivosEncontrados.ToArray()
+        } catch {
+            $errorMsg = $_.Exception.Message
+            Write-Log-Local "ERRO FATAL NA API (Job): $errorMsg"
+            return @()
+        }
+    } # --- Fim do ScriptBlock ---
+    
+    # 1. Inicia o Job em um processo separado
+    $script:job = Start-Job -ScriptBlock $scriptBlock -ArgumentList $script:CaminhoBase, $nomeBusca, $script:PastaIgnorar, $logFilePath
+    
+    # 2. Para o timer antigo, se existir
+    if ($script:timer -and $script:timer.IsEnabled) {
+        $script:timer.Stop()
+    }
+
+    # 3. Cria um novo timer para VERIFICAR o job
+    $script:timer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:timer.Interval = [TimeSpan]::FromMilliseconds(250) # Verifica 4x por segundo
+    
+    # Adiciona o evento de verificação (Este código roda na Thread da UI)
+    $script:timer.Add_Tick({
+        
+        if (-not $script:job) {
+            $script:timer.Stop()
+            return
+        }
+
+        if ($script:job.State -in @('Completed', 'Failed', 'Stopped')) {
+            
+            # 1. O JOB TERMINOU! Pare de verificar.
+            $script:timer.Stop()
+            
+            # 2. Colete os resultados do processo separado.
+            try {
+                $script:ArquivosEncontrados = Receive-Job $script:job
+            }
+            catch {
+                $script:ArquivosEncontrados = @()
+            }
+            finally {
+                # Limpa o job
+                Remove-Job $script:job -Force
+                $script:job = $null
+            }
+            
+            # 3. ESCONDA O POP-UP
+            $loadingOverlay.Visibility = 'Collapsed'
+            $script:BuscaEmAndamento = $false
+            
+            # 4. Exiba os resultados
+            $logFilePath = Join-Path $script:PastaTemporaria "busca_log.txt"
+                
+            if ($script:ArquivosEncontrados -is [array] -and $script:ArquivosEncontrados.Count -gt 0) {
+                # SUCESSO
+                foreach ($arquivo in $script:ArquivosEncontrados) {
+                    $nome = [System.IO.Path]::GetFileName($arquivo)
+                    $lstResultados.Items.Add("📄 $nome")
+                }
+                $lblStatus.Text = "✅ $($script:ArquivosEncontrados.Count) arquivo(s) encontrado(s)"
+                $btnAbrirPasta.Visibility = 'Visible'
+                Show-Popup -Icon "✅" -Message "$($script:ArquivosEncontrados.Count) arquivo(s) encontrado(s)!" -Type "Success"
+            } else {
+                # FALHA/VAZIO
+                $msgLog = ""
+                if (Test-Path $logFilePath) {
+                    $msgLog = Get-Content $logFilePath | Select-Object -Last 1
+                }
+                $msgDisplay = "Nenhum arquivo encontrado para '$($txtBusca.Text)'."
+                if ($msgLog -like "*ERRO*") {
+                    $msgDisplay = "Erro durante a busca (Ver log externo): $msgLog"
+                }
+                $lstResultados.Items.Add("❌ Falha na Busca: $msgDisplay")
+                $lblStatus.Text = "⚠️ Erro na Busca: $msgDisplay"
+                Show-Popup -Icon "❌" -Message "$msgDisplay" -Type "Error"
+            }
+        }
+    })
+    
+    # 5. Inicia o timer de verificação
+    $script:timer.Start()
+})
+# --- FIM DO BLOCO DE BUSCA ---
+
+
+# Seleção na lista (Preview)
+$lstResultados.Add_SelectionChanged({
+    $selectedIndex = $lstResultados.SelectedIndex
+    
+    if ($selectedIndex -ge 0 -and $selectedIndex -lt $script:ArquivosEncontrados.Count) {
+        $progressPreview.Visibility = 'Visible'
+        $lblNoPreview.Visibility = 'Collapsed'
+        $lblStatus.Text = "Gerando pré-visualização..."
+        
+        $originalFile = $script:ArquivosEncontrados[$selectedIndex]
+        $fileName = [System.IO.Path]::GetFileName($originalFile)
+        $localFile = Join-Path $script:PastaTemporaria $fileName
+        
+        if (-not (Test-Path $localFile)) {
+            try {
+                Copy-Item -Path $originalFile -Destination $localFile -Force -ErrorAction Stop
+            } catch {
+                $progressPreview.Visibility = 'Collapsed'
+                $lblNoPreview.Text = "❌ Erro ao copiar o arquivo para preview."
+                $lblNoPreview.Visibility = 'Visible'
+                $lblStatus.Text = "❌ Falha ao copiar arquivo para preview."
+                return
+            }
+        }
+        
+        $previewPath = Generate-PdfPreviewImage -PdfPath $localFile
+        
+        $progressPreview.Visibility = 'Collapsed'
+        
+        if ($previewPath -and (Test-Path $previewPath)) {
+            $bitmap = New-Object System.Windows.Media.Imaging.BitmapImage
+            $bitmap.BeginInit()
+            $stream = [System.IO.File]::OpenRead($previewPath)
+            $bitmap.StreamSource = $stream
+            $bitmap.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+            $bitmap.EndInit()
+            
+            $imgPreview.Source = $bitmap
+            $stream.Close()
+            $stream.Dispose()
+            
+            $lblNoPreview.Visibility = 'Collapsed'
+            $lblStatus.Text = "🔍 Visualização ajustada (Clique para Zoom 1:1)"
+        } else {
+            $lblNoPreview.Text = "❌ Erro ao gerar preview (Ghostscript). Configurado em: $($script:GhostscriptExePath)"
+            $lblNoPreview.Visibility = 'Visible'
+            $lblStatus.Text = "❌ Falha ao gerar preview."
+        }
+    }
+})
+
+# Double click para abrir
+$lstResultados.Add_MouseDoubleClick({
+    $selectedIndex = $lstResultados.SelectedIndex
+    
+    if ($selectedIndex -ge 0 -and $selectedIndex -lt $script:ArquivosEncontrados.Count) {
+        $originalFile = $script:ArquivosEncontrados[$selectedIndex]
+        $fileName = [System.IO.Path]::GetFileName($originalFile)
+        $localFile = Join-Path $script:PastaTemporaria $fileName
+        
+        if (-not (Test-Path $localFile)) {
+            try {
+                Copy-Item -Path $originalFile -Destination $localFile -Force -ErrorAction Stop
+            } catch {
+                Show-Popup -Icon "❌" -Message "Erro ao copiar arquivo: $($_.Exception.Message)" -Type "Error"
+                return
+            }
+        }
+        
+        Start-Process $localFile
+    }
+})
+
+# Click na imagem para alternar zoom
+$imgPreview.Add_MouseLeftButtonUp({
+    if ($imgPreview.Source) {
+        if ($imgPreview.Stretch -eq 'Uniform') {
+            $imgPreview.Stretch = 'None'
+            $lblStatus.Text = "🔍 Visualização em tamanho real (Clique para Ajustar)"
+        } else {
+            $imgPreview.Stretch = 'Uniform'
+            $lblStatus.Text = "🔍 Visualização ajustada (Clique para Zoom 1:1)"
+        }
+    }
+})
+
+# Botão Abrir Pasta
+$btnAbrirPasta.Add_Click({
+    if ($script:PastaTemporaria -and (Test-Path $script:PastaTemporaria)) {
+        foreach ($arquivo in $script:ArquivosEncontrados) {
+            $fileName = [System.IO.Path]::GetFileName($arquivo)
+            $localFile = Join-Path $script:PastaTemporaria $fileName
+            
+            if (-not (Test-Path $localFile)) {
+                try {
+                    Copy-Item -Path $arquivo -Destination $localFile -Force -ErrorAction Stop
+                } catch {
+                    Write-Warning "Erro ao copiar arquivo: $($_.Exception.Message)"
+                }
+            }
+        }
+        
+        Start-Process "explorer.exe" -ArgumentList $script:PastaTemporaria
+        Show-Popup -Icon "📁" -Message "Pasta aberta com sucesso!" -Type "Info"
+    }
+})
+
+# Cleanup ao fechar (Já modificado acima)
+$window.Add_Closed({
+    if ($script:PastaTemporaria) {
+        Remove-PastaTemporaria -Caminho $script:PastaTemporaria
+    }
+    if ($script:timer -and $script:timer.IsEnabled) {
+        $script:timer.Stop()
+    }
+    if ($script:job) {
+        Remove-Job -Job $script:job -Force
+        $script:job = $null
+    }
+})
+
+# Iniciar tema padrão
+Toggle-Theme -IsDark $false
+
+# Mostrar janela
+$window.ShowDialog() | Out-Null
