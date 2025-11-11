@@ -108,6 +108,7 @@ function Generate-PdfPreviewImage {
         $psi.Arguments = $arguments -join " "
         $psi.UseShellExecute = $false
         $psi.CreateNoWindow = $true
+        $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true
         $proc = New-Object System.Diagnostics.Process
