@@ -529,24 +529,24 @@ function Toggle-Theme {
         # 1. Definição de Cores (Método Direto e Robusto)
         $brush_White = [System.Windows.Media.Brushes]::White
         $brush_Black = [System.Windows.Media.Brushes]::Black
-        $brush_F5F5F5 = [System.Windows.Media.SolidColorBrush]"#F5F5F5"
-        $brush_CCCCCC = [System.Windows.Media.SolidColorBrush]"#CCCCCC"
-        $brush_AAAAAA = [System.Windows.Media.SolidColorBrush]"#AAAAAA"
-        $brush_DDDDDD = [System.Windows.Media.SolidColorBrush]"#DDDDDD"
-        $brush_666666 = [System.Windows.Media.SolidColorBrush]"#666666"
-        $brush_333333 = [System.Windows.Media.SolidColorBrush]"#333333"
-        $brush_F0F0F0 = [System.Windows.Media.SolidColorBrush]"#F0F0F0"
+        $brush_F5F5F5 = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F5F5F5"))
+        $brush_CCCCCC = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#CCCCCC"))
+        $brush_AAAAAA = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#AAAAAA"))
+        $brush_DDDDDD = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#DDDDDD"))
+        $brush_666666 = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#666666"))
+        $brush_333333 = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#333333"))
+        $brush_F0F0F0 = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F0F0F0"))
 
-        $brush_1a1a1a = [System.Windows.Media.SolidColorBrush]"#1a1a1a"
-        $brush_2a2a2a = [System.Windows.Media.SolidColorBrush]"#2a2a2a"
-        $brush_3a3a3a = [System.Windows.Media.SolidColorBrush]"#3a3a3a"
-        $brush_4a4a4a = [System.Windows.Media.SolidColorBrush]"#4a4a4a"
-        $brush_555555 = [System.Windows.Media.SolidColorBrush]"#555555"
+        $brush_1a1a1a = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#1a1a1a"))
+        $brush_2a2a2a = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#2a2a2a"))
+        $brush_3a3a3a = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#3a3a3a"))
+        $brush_4a4a4a = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#4a4a4a"))
+        $brush_555555 = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#555555"))
 
-        $brush_TransWhite = [System.Windows.Media.SolidColorBrush]"#10FFFFFF"
-        $brush_TransRed = [System.Windows.Media.SolidColorBrush]"#50FF0000"
-        $brush_TransRedDark = [System.Windows.Media.SolidColorBrush]"#50CC0000"
-        $brush_TransGray = [System.Windows.Media.SolidColorBrush]"#20888888"
+        $brush_TransWhite = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10FFFFFF"))
+        $brush_TransRed = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#50FF0000"))
+        $brush_TransRedDark = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#50CC0000"))
+        $brush_TransGray = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#20888888"))
 
         if ($IsDark) {
             $script:TemaAtual = "Dark"
@@ -668,8 +668,8 @@ function Show-Popup {
     $popupMessage.Text = $Message
 
     if ($script:TemaAtual -eq "Dark") {
-        $popupContent.Background = [System.Windows.Media.SolidColorBrush]"#2a2a2a"
-        $popupMessage.Foreground = [System.Windows.Media.SolidColorBrush]"#CCCCCC"
+        $popupContent.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#2a2a2a"))
+        $popupMessage.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#CCCCCC"))
         $popupButton.Background = $window.FindResource("DarkSecondaryGradient")
     } else {
         $popupContent.Background = [System.Windows.Media.Brushes]::White
