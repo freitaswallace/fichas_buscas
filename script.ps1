@@ -1193,74 +1193,100 @@ $btnPesquisar.Add_Click({
 
 # Seleção na lista (Preview)
 $lstResultados.Add_SelectionChanged({
-    $selectedIndex = $lstResultados.SelectedIndex
-    
-    if ($selectedIndex -ge 0 -and $selectedIndex -lt $script:ArquivosEncontrados.Count) {
-        $progressPreview.Visibility = 'Visible'
-        $lblNoPreview.Visibility = 'Collapsed'
-        $lblStatus.Text = "Gerando pré-visualização..."
-        
-        $originalFile = $script:ArquivosEncontrados[$selectedIndex]
-        $fileName = [System.IO.Path]::GetFileName($originalFile)
-        $localFile = Join-Path $script:PastaTemporaria $fileName
-        
-        if (-not (Test-Path $localFile)) {
-            try {
-                Copy-Item -Path $originalFile -Destination $localFile -Force -ErrorAction Stop
-            } catch {
-                $progressPreview.Visibility = 'Collapsed'
-                $lblNoPreview.Text = "❌ Erro ao copiar o arquivo para preview."
+    try {
+        $selectedIndex = $lstResultados.SelectedIndex
+
+        if ($selectedIndex -ge 0 -and $selectedIndex -lt $script:ArquivosEncontrados.Count) {
+            $progressPreview.Visibility = 'Visible'
+            $lblNoPreview.Visibility = 'Collapsed'
+            $lblStatus.Text = "Gerando pré-visualização..."
+
+            $originalFile = $script:ArquivosEncontrados[$selectedIndex]
+            $fileName = [System.IO.Path]::GetFileName($originalFile)
+            $localFile = Join-Path $script:PastaTemporaria $fileName
+
+            if (-not (Test-Path $localFile)) {
+                try {
+                    Copy-Item -Path $originalFile -Destination $localFile -Force -ErrorAction Stop
+                } catch {
+                    $progressPreview.Visibility = 'Collapsed'
+                    $lblNoPreview.Text = "❌ Erro ao copiar o arquivo para preview."
+                    $lblNoPreview.Visibility = 'Visible'
+                    $lblStatus.Text = "❌ Falha ao copiar arquivo para preview."
+                    Write-Warning "Erro ao copiar arquivo: $_"
+                    return
+                }
+            }
+
+            $previewPath = Generate-PdfPreviewImage -PdfPath $localFile
+
+            $progressPreview.Visibility = 'Collapsed'
+
+            if ($previewPath -and (Test-Path $previewPath)) {
+                try {
+                    $bitmap = New-Object System.Windows.Media.Imaging.BitmapImage
+                    $bitmap.BeginInit()
+                    $stream = [System.IO.File]::OpenRead($previewPath)
+                    $bitmap.StreamSource = $stream
+                    $bitmap.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+                    $bitmap.EndInit()
+
+                    $imgPreview.Source = $bitmap
+                    $stream.Close()
+                    $stream.Dispose()
+
+                    $lblNoPreview.Visibility = 'Collapsed'
+                    $lblStatus.Text = "🔍 Visualização ajustada (Clique para Zoom 1:1)"
+                } catch {
+                    $lblNoPreview.Text = "❌ Erro ao carregar imagem de preview."
+                    $lblNoPreview.Visibility = 'Visible'
+                    $lblStatus.Text = "❌ Falha ao carregar preview."
+                    Write-Warning "Erro ao criar bitmap: $_"
+                }
+            } else {
+                $lblNoPreview.Text = "❌ Erro ao gerar preview (Ghostscript). Verifique se está instalado em: $($script:GhostscriptExePath)"
                 $lblNoPreview.Visibility = 'Visible'
-                $lblStatus.Text = "❌ Falha ao copiar arquivo para preview."
-                return
+                $lblStatus.Text = "❌ Falha ao gerar preview."
             }
         }
-        
-        $previewPath = Generate-PdfPreviewImage -PdfPath $localFile
-        
+    } catch {
         $progressPreview.Visibility = 'Collapsed'
-        
-        if ($previewPath -and (Test-Path $previewPath)) {
-            $bitmap = New-Object System.Windows.Media.Imaging.BitmapImage
-            $bitmap.BeginInit()
-            $stream = [System.IO.File]::OpenRead($previewPath)
-            $bitmap.StreamSource = $stream
-            $bitmap.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
-            $bitmap.EndInit()
-            
-            $imgPreview.Source = $bitmap
-            $stream.Close()
-            $stream.Dispose()
-            
-            $lblNoPreview.Visibility = 'Collapsed'
-            $lblStatus.Text = "🔍 Visualização ajustada (Clique para Zoom 1:1)"
-        } else {
-            $lblNoPreview.Text = "❌ Erro ao gerar preview (Ghostscript). Configurado em: $($script:GhostscriptExePath)"
-            $lblNoPreview.Visibility = 'Visible'
-            $lblStatus.Text = "❌ Falha ao gerar preview."
-        }
+        $lblNoPreview.Text = "❌ Erro inesperado ao gerar preview. Verifique o console para detalhes."
+        $lblNoPreview.Visibility = 'Visible'
+        $lblStatus.Text = "❌ Erro ao processar seleção."
+        Write-Warning "Erro no evento SelectionChanged: $_"
+        Write-Warning $_.ScriptStackTrace
     }
 })
 
 # Double click para abrir
 $lstResultados.Add_MouseDoubleClick({
-    $selectedIndex = $lstResultados.SelectedIndex
-    
-    if ($selectedIndex -ge 0 -and $selectedIndex -lt $script:ArquivosEncontrados.Count) {
-        $originalFile = $script:ArquivosEncontrados[$selectedIndex]
-        $fileName = [System.IO.Path]::GetFileName($originalFile)
-        $localFile = Join-Path $script:PastaTemporaria $fileName
-        
-        if (-not (Test-Path $localFile)) {
+    try {
+        $selectedIndex = $lstResultados.SelectedIndex
+
+        if ($selectedIndex -ge 0 -and $selectedIndex -lt $script:ArquivosEncontrados.Count) {
+            $originalFile = $script:ArquivosEncontrados[$selectedIndex]
+            $fileName = [System.IO.Path]::GetFileName($originalFile)
+            $localFile = Join-Path $script:PastaTemporaria $fileName
+
+            if (-not (Test-Path $localFile)) {
+                try {
+                    Copy-Item -Path $originalFile -Destination $localFile -Force -ErrorAction Stop
+                } catch {
+                    Show-Popup -Icon "❌" -Message "Erro ao copiar arquivo: $($_.Exception.Message)" -Type "Error"
+                    return
+                }
+            }
+
             try {
-                Copy-Item -Path $originalFile -Destination $localFile -Force -ErrorAction Stop
+                Start-Process $localFile -ErrorAction Stop
             } catch {
-                Show-Popup -Icon "❌" -Message "Erro ao copiar arquivo: $($_.Exception.Message)" -Type "Error"
-                return
+                Show-Popup -Icon "❌" -Message "Erro ao abrir arquivo. Verifique se há um leitor de PDF instalado." -Type "Error"
             }
         }
-        
-        Start-Process $localFile
+    } catch {
+        Show-Popup -Icon "❌" -Message "Erro inesperado ao abrir arquivo: $($_.Exception.Message)" -Type "Error"
+        Write-Warning "Erro no evento MouseDoubleClick: $_"
     }
 })
 
