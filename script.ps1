@@ -111,11 +111,18 @@ function Generate-PdfPreviewImage {
         return $null
     }
 
-    $baseOutputName = "preview_page"
+    # Usar nome único baseado no arquivo PDF + timestamp para evitar cache
+    $pdfBaseName = [System.IO.Path]::GetFileNameWithoutExtension($PdfPath)
+    $uniqueId = [DateTime]::Now.Ticks
+    $baseOutputName = "preview_${pdfBaseName}_${uniqueId}_page"
     $outputPattern = Join-Path $script:PastaTemporaria ($baseOutputName + "_%d.png")
-    $finalStitchedPath = Join-Path $script:PastaTemporaria "preview.png"
+    $finalStitchedPath = Join-Path $script:PastaTemporaria "preview_${pdfBaseName}_${uniqueId}.png"
 
-    Get-ChildItem -Path $script:PastaTemporaria -Filter "preview*.png" | Remove-Item -Force -ErrorAction SilentlyContinue
+    # Limpar previews antigos (manter apenas os 3 mais recentes)
+    try {
+        $oldPreviews = Get-ChildItem -Path $script:PastaTemporaria -Filter "preview_*.png" | Sort-Object LastWriteTime -Descending | Select-Object -Skip 3
+        $oldPreviews | Remove-Item -Force -ErrorAction SilentlyContinue
+    } catch {}
 
     $arguments = @(
         "-dNOPAUSE", "-dBATCH", "-dSAFER", "-dQUIET", 
@@ -1267,6 +1274,7 @@ $lstResultados.Add_SelectionChanged({
 
             if ($previewPath -and (Test-Path $previewPath)) {
                 try {
+                    # Cada preview tem nome único, então não precisa de timestamp na URI
                     $bitmap = New-Object System.Windows.Media.Imaging.BitmapImage
                     $bitmap.BeginInit()
                     $bitmap.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
@@ -1278,6 +1286,7 @@ $lstResultados.Add_SelectionChanged({
 
                     $lblNoPreview.Visibility = 'Collapsed'
                     $lblStatus.Text = "🔍 Visualização ajustada (Clique para Zoom 1:1)"
+                    Write-Host "Preview carregado: $previewPath"
                 } catch {
                     $lblNoPreview.Text = "❌ Erro ao carregar imagem: $($_.Exception.Message)"
                     $lblNoPreview.Visibility = 'Visible'
