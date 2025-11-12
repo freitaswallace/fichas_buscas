@@ -982,7 +982,12 @@ $btnPesquisar.Add_Click({
     $script:FileCountFile = Join-Path $script:PastaTemporaria "file_count.txt"
 
     # Inicializar arquivo de contagem
-    "0" | Out-File -FilePath $script:FileCountFile -Force
+    try {
+        "0" | Out-File -FilePath $script:FileCountFile -Force -ErrorAction Stop
+        Write-Host "Arquivo de contagem criado: $script:FileCountFile"
+    } catch {
+        Write-Warning "Erro ao criar arquivo de contagem: $_"
+    }
 
     # Resetar o loading para estado de processamento
     $lblLoading.Text = "Processando..."
@@ -1078,12 +1083,14 @@ $btnPesquisar.Add_Click({
                             $arquivosEncontrados.Add($arquivo)
                             Write-Log-Local "ENCONTRADO: $nomeArquivo"
 
-                            # Atualizar arquivo de contagem a cada 5 arquivos (otimização)
+                            # Atualizar arquivo de contagem a cada 3 arquivos ou no primeiro (para UI responsiva)
                             $contadorAtualizacao++
-                            if ($contadorAtualizacao -ge 5) {
+                            if ($contadorAtualizacao -eq 1 -or $contadorAtualizacao -ge 3) {
                                 try {
-                                    $arquivosEncontrados.Count.ToString() | Out-File -FilePath $CountFilePath -Force
-                                    $contadorAtualizacao = 0
+                                    $arquivosEncontrados.Count.ToString() | Out-File -FilePath $CountFilePath -Force -NoNewline
+                                    if ($contadorAtualizacao -ge 3) {
+                                        $contadorAtualizacao = 0
+                                    }
                                 } catch {}
                             }
                         }
@@ -1102,10 +1109,12 @@ $btnPesquisar.Add_Click({
 
             Search-FilesNet -Pasta $CaminhoBase
 
-            # Atualização final da contagem
+            # Atualização final da contagem (garantir valor correto)
             try {
-                $arquivosEncontrados.Count.ToString() | Out-File -FilePath $CountFilePath -Force
-            } catch {}
+                $arquivosEncontrados.Count.ToString() | Out-File -FilePath $CountFilePath -Force -NoNewline
+            } catch {
+                Write-Log-Local "Erro ao atualizar contagem final: $_"
+            }
 
             Write-Log-Local "FIM DA BUSCA (Job): Encontrados $($arquivosEncontrados.Count) arquivos."
 
@@ -1140,12 +1149,15 @@ $btnPesquisar.Add_Click({
         # Ler contagem em tempo real
         try {
             if (Test-Path $script:FileCountFile) {
-                $currentCount = Get-Content $script:FileCountFile -ErrorAction SilentlyContinue
-                if ($currentCount) {
-                    $lblFileCount.Text = "Encontrando... $currentCount arquivos"
+                $currentCount = Get-Content $script:FileCountFile -Raw -ErrorAction SilentlyContinue
+                if ($currentCount -and $currentCount.Trim()) {
+                    $countValue = $currentCount.Trim()
+                    $lblFileCount.Text = "Encontrando... $countValue arquivos"
                 }
             }
-        } catch {}
+        } catch {
+            Write-Warning "Erro ao ler arquivo de contagem: $_"
+        }
 
         if ($script:job.State -in @('Completed', 'Failed', 'Stopped')) {
 
@@ -1250,27 +1262,31 @@ $lstResultados.Add_SelectionChanged({
                 try {
                     $bitmap = New-Object System.Windows.Media.Imaging.BitmapImage
                     $bitmap.BeginInit()
-                    $stream = [System.IO.File]::OpenRead($previewPath)
-                    $bitmap.StreamSource = $stream
                     $bitmap.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+                    $bitmap.UriSource = New-Object System.Uri($previewPath, [System.UriKind]::Absolute)
                     $bitmap.EndInit()
+                    $bitmap.Freeze()
 
                     $imgPreview.Source = $bitmap
-                    $stream.Close()
-                    $stream.Dispose()
 
                     $lblNoPreview.Visibility = 'Collapsed'
                     $lblStatus.Text = "🔍 Visualização ajustada (Clique para Zoom 1:1)"
                 } catch {
-                    $lblNoPreview.Text = "❌ Erro ao carregar imagem de preview."
+                    $lblNoPreview.Text = "❌ Erro ao carregar imagem: $($_.Exception.Message)"
                     $lblNoPreview.Visibility = 'Visible'
                     $lblStatus.Text = "❌ Falha ao carregar preview."
                     Write-Warning "Erro ao criar bitmap: $_"
+                    Write-Warning "Preview path: $previewPath"
                 }
             } else {
-                $lblNoPreview.Text = "❌ Erro ao gerar preview (Ghostscript). Verifique se está instalado em: $($script:GhostscriptExePath)"
+                if (-not $previewPath) {
+                    $lblNoPreview.Text = "❌ Ghostscript falhou ao gerar preview. Verifique se está instalado em:`n$($script:GhostscriptExePath)"
+                } else {
+                    $lblNoPreview.Text = "❌ Arquivo de preview não encontrado: $previewPath"
+                }
                 $lblNoPreview.Visibility = 'Visible'
                 $lblStatus.Text = "❌ Falha ao gerar preview."
+                Write-Warning "Preview falhou. Path retornado: $previewPath"
             }
         }
     } catch {
