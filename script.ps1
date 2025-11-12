@@ -1233,6 +1233,13 @@ $lstResultados.Add_SelectionChanged({
         $selectedIndex = $lstResultados.SelectedIndex
 
         if ($selectedIndex -ge 0 -and $selectedIndex -lt $script:ArquivosEncontrados.Count) {
+            # Limpar imagem anterior ANTES de gerar nova (crítico!)
+            if ($imgPreview.Source) {
+                $imgPreview.Source = $null
+                [System.GC]::Collect()
+                [System.GC]::WaitForPendingFinalizers()
+            }
+
             $progressPreview.Visibility = 'Visible'
             $lblNoPreview.Visibility = 'Collapsed'
             $lblStatus.Text = "Gerando pré-visualização..."
