@@ -1031,6 +1031,15 @@ $btnPesquisar.Add_Click({
         $arquivosEncontrados = [System.Collections.Generic.List[string]]::new()
         $pastasParaIgnorar = $PastaIgnorar.TrimEnd('\').ToUpper()
 
+        # Pré-calcular padrão sem separadores (otimização - calcular uma vez só)
+        $padraoSemSeparadores = ""
+        if (-not $IsBuscaDocumento) {
+            $padraoSemSeparadores = Remove-Separadores -Texto $PadraoNome
+        }
+
+        # Contador para atualizar arquivo de contagem (não atualizar a cada arquivo - otimização)
+        $contadorAtualizacao = 0
+
         try {
             function Search-FilesNet {
                 param([string]$Pasta)
@@ -1039,10 +1048,8 @@ $btnPesquisar.Add_Click({
 
                 # Só ignora pasta se $pastasParaIgnorar não estiver vazio
                 if (-not [string]::IsNullOrWhiteSpace($pastasParaIgnorar) -and $pastaNormalizada.Contains($pastasParaIgnorar)) {
-                    Write-Log-Local "IGNORADO: $Pasta"
                     return
                 }
-                Write-Log-Local "PROCESSANDO PASTA: $Pasta"
 
                 try {
                     $files = [System.IO.Directory]::EnumerateFiles($Pasta, "*.pdf", [System.IO.SearchOption]::TopDirectoryOnly)
@@ -1056,29 +1063,29 @@ $btnPesquisar.Add_Click({
                             # Busca por documento (CPF/CNPJ) - termina com -[NUMERO].pdf
                             if ($nomeArquivo -match "-$PadraoNome\.pdf$") {
                                 $matchEncontrado = $true
-                                Write-Log-Local "MATCH DOCUMENTO: $nomeArquivo"
                             }
                         } else {
                             # Busca por nome ou rua - BUSCA PARCIAL PERMISSIVA
-                            # Remove TODOS os separadores de ambos e busca substring
+                            # Remove TODOS os separadores e busca substring
                             $nomeArquivoSemSeparadores = Remove-Separadores -Texto $nomeArquivoNormalizado
-                            $padraoSemSeparadores = Remove-Separadores -Texto $PadraoNome
-
-                            Write-Log-Local "DEBUG - Arquivo limpo: $nomeArquivoSemSeparadores | Padrão limpo: $padraoSemSeparadores"
 
                             if ($nomeArquivoSemSeparadores.Contains($padraoSemSeparadores)) {
                                 $matchEncontrado = $true
-                                Write-Log-Local "MATCH ENCONTRADO: $nomeArquivo"
                             }
                         }
 
                         if ($matchEncontrado) {
                             $arquivosEncontrados.Add($arquivo)
                             Write-Log-Local "ENCONTRADO: $nomeArquivo"
-                            # Atualizar arquivo de contagem em tempo real
-                            try {
-                                $arquivosEncontrados.Count.ToString() | Out-File -FilePath $CountFilePath -Force
-                            } catch {}
+
+                            # Atualizar arquivo de contagem a cada 5 arquivos (otimização)
+                            $contadorAtualizacao++
+                            if ($contadorAtualizacao -ge 5) {
+                                try {
+                                    $arquivosEncontrados.Count.ToString() | Out-File -FilePath $CountFilePath -Force
+                                    $contadorAtualizacao = 0
+                                } catch {}
+                            }
                         }
                     }
 
@@ -1089,13 +1096,19 @@ $btnPesquisar.Add_Click({
                 }
                 catch {
                     $errorMsg = $_.Exception.Message
-                    Write-Log-Local "ERRO I/O em " + $Pasta + ": " + $errorMsg
+                    Write-Log-Local "ERRO I/O em $Pasta : $errorMsg"
                 }
             }
 
             Search-FilesNet -Pasta $CaminhoBase
+
+            # Atualização final da contagem
+            try {
+                $arquivosEncontrados.Count.ToString() | Out-File -FilePath $CountFilePath -Force
+            } catch {}
+
             Write-Log-Local "FIM DA BUSCA (Job): Encontrados $($arquivosEncontrados.Count) arquivos."
-            
+
             return $arquivosEncontrados.ToArray()
         } catch {
             $errorMsg = $_.Exception.Message
