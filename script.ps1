@@ -941,31 +941,42 @@ $btnPesquisar.Add_Click({
     
     $script:BuscaEmAndamento = $true
 
-    # Detectar se é busca por documento (CPF/CNPJ) ou por nome/rua
-    $isBuscaDocumento = Test-IsDocumento -Texto $nomeDigitado
-    if ($isBuscaDocumento) {
-        $nomeBusca = Format-NumeroDocumento -Texto $nomeDigitado
-        Write-Host "Detectada busca por documento: $nomeBusca"
-    } else {
-        $nomeBusca = Format-NomeBusca -NomeDigitado $nomeDigitado
-        Write-Host "Detectada busca por nome/rua: $nomeBusca"
-    }
-
     # Verificar se deve buscar apenas em INDICADOR REAL ou excluir essa pasta
     $buscarApenasIndicadorReal = $chkBuscarIndicadorReal.IsChecked -eq $true
     $pastaIndicadorReal = "\\192.168.20.100\TRABALHO\TRANSITO\FICHAS INDISPONIBILIDADE NOVAS RENOMEADAS\INDICADOR REAL"
 
+    # Detectar tipo de busca e preparar padrão
+    $isBuscaDocumento = Test-IsDocumento -Texto $nomeDigitado
+    if ($isBuscaDocumento) {
+        $nomeBusca = Format-NumeroDocumento -Texto $nomeDigitado
+        Write-Host "══════════════════════════════════════════════════════"
+        Write-Host "TIPO DE BUSCA: CPF/CNPJ"
+        Write-Host "Padrão de busca: $nomeBusca"
+    } else {
+        $nomeBusca = Format-NomeBusca -NomeDigitado $nomeDigitado
+        if ($buscarApenasIndicadorReal) {
+            Write-Host "══════════════════════════════════════════════════════"
+            Write-Host "TIPO DE BUSCA: RUA/LOTEAMENTO (apenas INDICADOR REAL)"
+            Write-Host "Padrão de busca: $nomeBusca"
+        } else {
+            Write-Host "══════════════════════════════════════════════════════"
+            Write-Host "TIPO DE BUSCA: NOME DE PESSOA"
+            Write-Host "Padrão de busca: $nomeBusca"
+        }
+    }
+
     if ($buscarApenasIndicadorReal) {
-        # Buscar APENAS na pasta INDICADOR REAL
+        # Buscar APENAS na pasta INDICADOR REAL (ruas/loteamentos)
         $caminhoParaBusca = $pastaIndicadorReal
         $pastaParaIgnorar = ""
-        Write-Host "Modo: Buscar APENAS em INDICADOR REAL"
+        Write-Host "Local: APENAS pasta INDICADOR REAL"
     } else {
-        # Buscar em todas EXCETO INDICADOR REAL
+        # Buscar em todas EXCETO INDICADOR REAL (nomes/CPF/CNPJ)
         $caminhoParaBusca = $script:CaminhoBase
         $pastaParaIgnorar = $pastaIndicadorReal
-        Write-Host "Modo: Buscar em todas EXCETO INDICADOR REAL"
+        Write-Host "Local: TODAS as pastas EXCETO INDICADOR REAL"
     }
+    Write-Host "══════════════════════════════════════════════════════"
 
     $logFilePath = Join-Path $script:PastaTemporaria "busca_log.txt"
     $script:FileCountFile = Join-Path $script:PastaTemporaria "file_count.txt"
