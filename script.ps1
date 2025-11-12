@@ -1243,6 +1243,9 @@ $lstResultados.Add_SelectionChanged({
             # Limpar imagem anterior ANTES de gerar nova (crítico!)
             if ($imgPreview.Source) {
                 $imgPreview.Source = $null
+                # Forçar invalidação visual do controle
+                $imgPreview.InvalidateVisual()
+                $imgPreview.UpdateLayout()
                 [System.GC]::Collect()
                 [System.GC]::WaitForPendingFinalizers()
             }
@@ -1274,19 +1277,36 @@ $lstResultados.Add_SelectionChanged({
 
             if ($previewPath -and (Test-Path $previewPath)) {
                 try {
-                    # Cada preview tem nome único, então não precisa de timestamp na URI
+                    # SOLUÇÃO DEFINITIVA: Carregar da MEMÓRIA para evitar qualquer cache
+                    # Ler arquivo em bytes
+                    $imageBytes = [System.IO.File]::ReadAllBytes($previewPath)
+
+                    # Criar MemoryStream com os bytes
+                    $memoryStream = New-Object System.IO.MemoryStream
+                    $memoryStream.Write($imageBytes, 0, $imageBytes.Length)
+                    $memoryStream.Position = 0
+
+                    # Criar bitmap a partir do MemoryStream
                     $bitmap = New-Object System.Windows.Media.Imaging.BitmapImage
                     $bitmap.BeginInit()
                     $bitmap.CacheOption = [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad
-                    $bitmap.UriSource = New-Object System.Uri($previewPath, [System.UriKind]::Absolute)
+                    $bitmap.StreamSource = $memoryStream
                     $bitmap.EndInit()
                     $bitmap.Freeze()
 
+                    # Fechar stream DEPOIS de freeze
+                    $memoryStream.Close()
+                    $memoryStream.Dispose()
+
                     $imgPreview.Source = $bitmap
+
+                    # Forçar renderização da nova imagem
+                    $imgPreview.InvalidateVisual()
+                    $imgPreview.UpdateLayout()
 
                     $lblNoPreview.Visibility = 'Collapsed'
                     $lblStatus.Text = "🔍 Visualização ajustada (Clique para Zoom 1:1)"
-                    Write-Host "Preview carregado: $previewPath"
+                    Write-Host "Preview carregado da memória: $previewPath (tamanho: $($imageBytes.Length) bytes)"
                 } catch {
                     $lblNoPreview.Text = "❌ Erro ao carregar imagem: $($_.Exception.Message)"
                     $lblNoPreview.Visibility = 'Visible'
