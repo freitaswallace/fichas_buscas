@@ -1079,6 +1079,12 @@ $btnPesquisar.Add_Click({
 
                     if ($matchEncontrado) {
                         $arquivosEncontrados.Add($arquivo)
+
+                        # Atualizar contagem em arquivo específico para este thread
+                        try {
+                            $threadCountFile = "$CountFilePath.$ThreadID"
+                            $arquivosEncontrados.Count.ToString() | Out-File -FilePath $threadCountFile -Force -NoNewline
+                        } catch {}
                     }
                 }
 
@@ -1196,9 +1202,24 @@ $btnPesquisar.Add_Click({
             }
         }
 
-        # Atualizar tempo decorrido
+        # Atualizar tempo decorrido e contagem em tempo real
         $elapsed = (Get-Date) - $script:runspaceData.StartTime
-        $lblFileCount.Text = "Buscando... ($($elapsed.ToString('mm\:ss'))s | $numThreads threads)"
+
+        # Ler contagens de todos os threads
+        $totalCount = 0
+        for ($i = 0; $i -lt $numThreads; $i++) {
+            $threadCountFile = "$($script:FileCountFile).$i"
+            if (Test-Path $threadCountFile) {
+                try {
+                    $count = Get-Content $threadCountFile -Raw -ErrorAction SilentlyContinue
+                    if ($count -and $count.Trim()) {
+                        $totalCount += [int]$count.Trim()
+                    }
+                } catch {}
+            }
+        }
+
+        $lblFileCount.Text = "Buscando... $totalCount arquivos ($($elapsed.ToString('mm\:ss'))s | $numThreads threads)"
 
         if ($allComplete) {
             # TODOS OS THREADS TERMINARAM!
