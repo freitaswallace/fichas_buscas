@@ -915,13 +915,13 @@ $txtBusca.Add_KeyDown({
 # --- BLOCO DE BUSCA (Start-Job) ---
 $btnPesquisar.Add_Click({
     if ($script:BuscaEmAndamento) {
-        Show-Popup -Icon "⚠️" -Message "Busca já em andamento!" -Type "Warning"
+        $lblStatus.Text = "⚠️ Aguarde... busca em andamento."
         return
     }
-    
+
     $nomeDigitado = $txtBusca.Text.Trim()
     if ([string]::IsNullOrWhiteSpace($nomeDigitado)) {
-        Show-Popup -Icon "⚠️" -Message "Digite um nome para buscar!" -Type "Warning"
+        $lblStatus.Text = "⚠️ Digite um nome para buscar."
         return
     }
     
@@ -942,7 +942,8 @@ $btnPesquisar.Add_Click({
     $script:PastaTemporaria = New-PastaTemporaria
     if (-not $script:PastaTemporaria) {
         $loadingOverlay.Visibility = 'Collapsed'
-        Show-Popup -Icon "❌" -Message "Não foi possível criar pasta temp." -Type "Error"
+        $lblStatus.Text = "❌ Erro crítico: Não foi possível criar pasta temporária"
+        Write-Warning "Erro crítico: Não foi possível criar pasta temporária"
         return
     }
     
@@ -1349,19 +1350,22 @@ $lstResultados.Add_MouseDoubleClick({
                 try {
                     Copy-Item -Path $originalFile -Destination $localFile -Force -ErrorAction Stop
                 } catch {
-                    Show-Popup -Icon "❌" -Message "Erro ao copiar arquivo: $($_.Exception.Message)" -Type "Error"
+                    $lblStatus.Text = "❌ Erro ao copiar arquivo"
+                    Write-Warning "Erro ao copiar arquivo: $_"
                     return
                 }
             }
 
             try {
                 Start-Process $localFile -ErrorAction Stop
+                $lblStatus.Text = "📄 Arquivo aberto"
             } catch {
-                Show-Popup -Icon "❌" -Message "Erro ao abrir arquivo. Verifique se há um leitor de PDF instalado." -Type "Error"
+                $lblStatus.Text = "❌ Erro ao abrir PDF - Verifique se há um leitor instalado"
+                Write-Warning "Erro ao abrir arquivo: $_"
             }
         }
     } catch {
-        Show-Popup -Icon "❌" -Message "Erro inesperado ao abrir arquivo: $($_.Exception.Message)" -Type "Error"
+        $lblStatus.Text = "❌ Erro ao processar arquivo"
         Write-Warning "Erro no evento MouseDoubleClick: $_"
     }
 })
@@ -1396,7 +1400,7 @@ $btnAbrirPasta.Add_Click({
         }
         
         Start-Process "explorer.exe" -ArgumentList $script:PastaTemporaria
-        Show-Popup -Icon "📁" -Message "Pasta aberta com sucesso!" -Type "Info"
+        $lblStatus.Text = "📁 Pasta aberta no Explorer"
     }
 })
 
