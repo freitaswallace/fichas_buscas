@@ -73,7 +73,7 @@ function New-PastaTemporaria {
         return $pastaTemp
     }
     catch {
-        Write-Error "Erro ao criar pasta temporária: $_"
+        # Write-Error "Erro ao criar pasta temporária: $_"
         return $null
     }
 }
@@ -95,7 +95,7 @@ function Remove-PastaTemporaria {
                 return $true
             }
             catch {
-                Write-Error "Não foi possível remover '$Caminho': $_"
+                # Write-Error "Não foi possível remover '$Caminho': $_"
                 return $false
             }
         }
@@ -107,7 +107,7 @@ function Generate-PdfPreviewImage {
     param([string]$PdfPath)
 
     if (-not (Test-Path $script:GhostscriptExePath)) {
-        Write-Error "Ghostscript não encontrado."
+        # Write-Error "Ghostscript não encontrado."
         return $null
     }
 
@@ -614,7 +614,7 @@ $btnClose = $window.FindName("btnClose")
 function Toggle-Theme {
     param([bool]$IsDark)
 
-    Write-Host "Toggle-Theme chamado com IsDark=$IsDark"
+    # Write-Host "Toggle-Theme chamado com IsDark=$IsDark"
 
     try { # Adicionado Try/Catch para depuração
         # 1. Definição de Cores (Método Direto e Robusto)
@@ -741,12 +741,12 @@ function Toggle-Theme {
             $lstResultados.ItemContainerStyle = $newStyle
         }
 
-        Write-Host "Toggle-Theme aplicado com sucesso: $(if($IsDark){'Dark'}else{'Light'})"
+        # Write-Host "Toggle-Theme aplicado com sucesso: $(if($IsDark){'Dark'}else{'Light'})"
     }
     catch {
         # Se qualquer linha acima falhar, loga o erro mas não mostra popup durante inicialização
-        Write-Warning "Erro ao trocar tema: $($_.Exception.Message)"
-        Write-Warning "StackTrace: $($_.ScriptStackTrace)"
+        # Write-Warning "Erro ao trocar tema: $($_.Exception.Message)"
+        # Write-Warning "StackTrace: $($_.ScriptStackTrace)"
     }
 }
 # --- FIM DA FUNÇÃO DE TEMA ---
@@ -801,7 +801,7 @@ function Show-Popup {
     $autoCloseTimer = New-Object System.Windows.Threading.DispatcherTimer
     $autoCloseTimer.Interval = [TimeSpan]::FromSeconds(3)
     $autoCloseTimer.Add_Tick({
-        Write-Host "Timer de auto-close disparado - fechando popup automaticamente"
+        # Write-Host "Timer de auto-close disparado - fechando popup automaticamente"
         Hide-Popup
         $autoCloseTimer.Stop()
     })
@@ -810,11 +810,11 @@ function Show-Popup {
 # --- FIM DA FUNÇÃO SHOW-POPUP ---
 
 function Hide-Popup {
-    Write-Host "Hide-Popup chamado"
+    # Write-Host "Hide-Popup chamado"
 
     # Esconder overlay imediatamente (sem animação para garantir que funciona)
     $popupOverlay.Visibility = 'Collapsed'
-    Write-Host "Overlay escondido"
+    # Write-Host "Overlay escondido"
 }
 
 
@@ -825,7 +825,7 @@ $themeToggle.Add_Checked({
         Toggle-Theme -IsDark $true
     }
     catch {
-        Write-Warning "Erro ao ativar tema escuro: $($_.Exception.Message)"
+        # Write-Warning "Erro ao ativar tema escuro: $($_.Exception.Message)"
     }
 })
 $themeToggle.Add_Unchecked({
@@ -833,17 +833,17 @@ $themeToggle.Add_Unchecked({
         Toggle-Theme -IsDark $false
     }
     catch {
-        Write-Warning "Erro ao desativar tema escuro: $($_.Exception.Message)"
+        # Write-Warning "Erro ao desativar tema escuro: $($_.Exception.Message)"
     }
 })
 $popupButton.Add_Click({
-    Write-Host "Botão popup clicado"
+    # Write-Host "Botão popup clicado"
     Hide-Popup
 })
 
 # Permitir fechar o loading clicando no botão X
 $btnCloseLoading.Add_Click({
-    Write-Host "Botão X do loading clicado"
+    # Write-Host "Botão X do loading clicado"
     if ($btnCloseLoading.Visibility -eq 'Visible') {
         $loadingOverlay.Visibility = 'Collapsed'
     }
@@ -855,7 +855,7 @@ $loadingOverlay.Add_MouseLeftButtonDown({
     # Verifica se o clique foi no overlay (fundo escuro) e não no conteúdo
     # E só permite fechar se o botão X estiver visível (ou seja, busca concluída)
     if ($e.Source -eq $loadingOverlay -and $btnCloseLoading.Visibility -eq 'Visible') {
-        Write-Host "Overlay do loading clicado - fechando"
+        # Write-Host "Overlay do loading clicado - fechando"
         $loadingOverlay.Visibility = 'Collapsed'
     }
 })
@@ -865,7 +865,7 @@ $popupOverlay.Add_MouseLeftButtonDown({
     param($sender, $e)
     # Verifica se o clique foi no overlay (fundo escuro) e não no conteúdo do popup
     if ($e.Source -eq $popupOverlay) {
-        Write-Host "Overlay clicado - fechando popup"
+        # Write-Host "Overlay clicado - fechando popup"
         Hide-Popup
     }
 })
@@ -874,7 +874,7 @@ $popupOverlay.Add_MouseLeftButtonDown({
 $window.Add_KeyDown({
     param($sender, $e)
     if ($e.Key -eq 'Escape' -and $popupOverlay.Visibility -eq 'Visible') {
-        Write-Host "ESC pressionado - fechando popup"
+        # Write-Host "ESC pressionado - fechando popup"
         Hide-Popup
     }
 })
@@ -943,7 +943,7 @@ $btnPesquisar.Add_Click({
     if (-not $script:PastaTemporaria) {
         $loadingOverlay.Visibility = 'Collapsed'
         $lblStatus.Text = "❌ Erro crítico: Não foi possível criar pasta temporária"
-        Write-Warning "Erro crítico: Não foi possível criar pasta temporária"
+        # Write-Warning "Erro crítico: Não foi possível criar pasta temporária"
         return
     }
     
@@ -957,19 +957,19 @@ $btnPesquisar.Add_Click({
     $isBuscaDocumento = Test-IsDocumento -Texto $nomeDigitado
     if ($isBuscaDocumento) {
         $nomeBusca = Format-NumeroDocumento -Texto $nomeDigitado
-        Write-Host "══════════════════════════════════════════════════════"
-        Write-Host "TIPO DE BUSCA: CPF/CNPJ"
-        Write-Host "Padrão de busca: $nomeBusca"
+        # Write-Host "══════════════════════════════════════════════════════"
+        # Write-Host "TIPO DE BUSCA: CPF/CNPJ"
+        # Write-Host "Padrão de busca: $nomeBusca"
     } else {
         $nomeBusca = Format-NomeBusca -NomeDigitado $nomeDigitado
         if ($buscarApenasIndicadorReal) {
-            Write-Host "══════════════════════════════════════════════════════"
-            Write-Host "TIPO DE BUSCA: RUA/LOTEAMENTO (apenas INDICADOR REAL)"
-            Write-Host "Padrão de busca: $nomeBusca"
+            # Write-Host "══════════════════════════════════════════════════════"
+            # Write-Host "TIPO DE BUSCA: RUA/LOTEAMENTO (apenas INDICADOR REAL)"
+            # Write-Host "Padrão de busca: $nomeBusca"
         } else {
-            Write-Host "══════════════════════════════════════════════════════"
-            Write-Host "TIPO DE BUSCA: NOME DE PESSOA"
-            Write-Host "Padrão de busca: $nomeBusca"
+            # Write-Host "══════════════════════════════════════════════════════"
+            # Write-Host "TIPO DE BUSCA: NOME DE PESSOA"
+            # Write-Host "Padrão de busca: $nomeBusca"
         }
     }
 
@@ -977,14 +977,14 @@ $btnPesquisar.Add_Click({
         # Buscar APENAS na pasta INDICADOR REAL (ruas/loteamentos)
         $caminhoParaBusca = $pastaIndicadorReal
         $pastaParaIgnorar = ""
-        Write-Host "Local: APENAS pasta INDICADOR REAL"
+        # Write-Host "Local: APENAS pasta INDICADOR REAL"
     } else {
         # Buscar em todas EXCETO INDICADOR REAL (nomes/CPF/CNPJ)
         $caminhoParaBusca = $script:CaminhoBase
         $pastaParaIgnorar = $pastaIndicadorReal
-        Write-Host "Local: TODAS as pastas EXCETO INDICADOR REAL"
+        # Write-Host "Local: TODAS as pastas EXCETO INDICADOR REAL"
     }
-    Write-Host "══════════════════════════════════════════════════════"
+    # Write-Host "══════════════════════════════════════════════════════"
 
     $logFilePath = Join-Path $script:PastaTemporaria "busca_log.txt"
     $script:FileCountFile = Join-Path $script:PastaTemporaria "file_count.txt"
@@ -992,9 +992,9 @@ $btnPesquisar.Add_Click({
     # Inicializar arquivo de contagem
     try {
         "0" | Out-File -FilePath $script:FileCountFile -Force -ErrorAction Stop
-        Write-Host "Arquivo de contagem criado: $script:FileCountFile"
+        # Write-Host "Arquivo de contagem criado: $script:FileCountFile"
     } catch {
-        Write-Warning "Erro ao criar arquivo de contagem: $_"
+        # Write-Warning "Erro ao criar arquivo de contagem: $_"
     }
 
     # Resetar o loading para estado de processamento
@@ -1164,7 +1164,7 @@ $btnPesquisar.Add_Click({
                 }
             }
         } catch {
-            Write-Warning "Erro ao ler arquivo de contagem: $_"
+            # Write-Warning "Erro ao ler arquivo de contagem: $_"
         }
 
         if ($script:job.State -in @('Completed', 'Failed', 'Stopped')) {
@@ -1267,7 +1267,7 @@ $lstResultados.Add_SelectionChanged({
                     $lblNoPreview.Text = "❌ Erro ao copiar o arquivo para preview."
                     $lblNoPreview.Visibility = 'Visible'
                     $lblStatus.Text = "❌ Falha ao copiar arquivo para preview."
-                    Write-Warning "Erro ao copiar arquivo: $_"
+                    # Write-Warning "Erro ao copiar arquivo: $_"
                     return
                 }
             }
@@ -1307,13 +1307,13 @@ $lstResultados.Add_SelectionChanged({
 
                     $lblNoPreview.Visibility = 'Collapsed'
                     $lblStatus.Text = "🔍 Visualização ajustada (Clique para Zoom 1:1)"
-                    Write-Host "Preview carregado da memória: $previewPath (tamanho: $($imageBytes.Length) bytes)"
+                    # Write-Host "Preview carregado da memória: $previewPath (tamanho: $($imageBytes.Length) bytes)"
                 } catch {
                     $lblNoPreview.Text = "❌ Erro ao carregar imagem: $($_.Exception.Message)"
                     $lblNoPreview.Visibility = 'Visible'
                     $lblStatus.Text = "❌ Falha ao carregar preview."
-                    Write-Warning "Erro ao criar bitmap: $_"
-                    Write-Warning "Preview path: $previewPath"
+                    # Write-Warning "Erro ao criar bitmap: $_"
+                    # Write-Warning "Preview path: $previewPath"
                 }
             } else {
                 if (-not $previewPath) {
@@ -1323,16 +1323,16 @@ $lstResultados.Add_SelectionChanged({
                 }
                 $lblNoPreview.Visibility = 'Visible'
                 $lblStatus.Text = "❌ Falha ao gerar preview."
-                Write-Warning "Preview falhou. Path retornado: $previewPath"
+                # Write-Warning "Preview falhou. Path retornado: $previewPath"
             }
         }
     } catch {
         $progressPreview.Visibility = 'Collapsed'
-        $lblNoPreview.Text = "❌ Erro inesperado ao gerar preview. Verifique o console para detalhes."
+        $lblNoPreview.Text = "❌ Erro inesperado ao gerar preview."
         $lblNoPreview.Visibility = 'Visible'
         $lblStatus.Text = "❌ Erro ao processar seleção."
-        Write-Warning "Erro no evento SelectionChanged: $_"
-        Write-Warning $_.ScriptStackTrace
+        # Write-Warning "Erro no evento SelectionChanged: $_"
+        # Write-Warning $_.ScriptStackTrace
     }
 })
 
@@ -1351,7 +1351,7 @@ $lstResultados.Add_MouseDoubleClick({
                     Copy-Item -Path $originalFile -Destination $localFile -Force -ErrorAction Stop
                 } catch {
                     $lblStatus.Text = "❌ Erro ao copiar arquivo"
-                    Write-Warning "Erro ao copiar arquivo: $_"
+                    # Write-Warning "Erro ao copiar arquivo: $_"
                     return
                 }
             }
@@ -1361,12 +1361,12 @@ $lstResultados.Add_MouseDoubleClick({
                 $lblStatus.Text = "📄 Arquivo aberto"
             } catch {
                 $lblStatus.Text = "❌ Erro ao abrir PDF - Verifique se há um leitor instalado"
-                Write-Warning "Erro ao abrir arquivo: $_"
+                # Write-Warning "Erro ao abrir arquivo: $_"
             }
         }
     } catch {
         $lblStatus.Text = "❌ Erro ao processar arquivo"
-        Write-Warning "Erro no evento MouseDoubleClick: $_"
+        # Write-Warning "Erro no evento MouseDoubleClick: $_"
     }
 })
 
@@ -1394,7 +1394,7 @@ $btnAbrirPasta.Add_Click({
                 try {
                     Copy-Item -Path $arquivo -Destination $localFile -Force -ErrorAction Stop
                 } catch {
-                    Write-Warning "Erro ao copiar arquivo: $($_.Exception.Message)"
+                    # Write-Warning "Erro ao copiar arquivo: $($_.Exception.Message)"
                 }
             }
         }
@@ -1431,7 +1431,7 @@ $window.Add_Loaded({
     catch {
         # Se der erro, apenas define a variável e mantém estilos padrão do XAML
         $script:TemaAtual = "Light"
-        Write-Warning "Erro ao inicializar tema: $($_.Exception.Message)"
+        # Write-Warning "Erro ao inicializar tema: $($_.Exception.Message)"
     }
 })
 
