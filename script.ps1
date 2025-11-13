@@ -1181,6 +1181,7 @@ $btnPesquisar.Add_Click({
         Pool = $runspacePool
         Runspaces = $runspaces
         StartTime = Get-Date
+        NumThreads = $numThreads
     }
 
     # 5. Para o timer antigo, se existir
@@ -1211,7 +1212,8 @@ $btnPesquisar.Add_Click({
 
         # Ler contagens de todos os threads
         $totalCount = 0
-        for ($i = 0; $i -lt $numThreads; $i++) {
+        $numThreadsAtual = $script:runspaceData.NumThreads
+        for ($i = 0; $i -lt $numThreadsAtual; $i++) {
             $threadCountFile = "$($script:FileCountFile).$i"
             if (Test-Path $threadCountFile) {
                 try {
@@ -1223,7 +1225,7 @@ $btnPesquisar.Add_Click({
             }
         }
 
-        $lblFileCount.Text = "Buscando... $totalCount arquivos ($($elapsed.ToString('mm\:ss'))s | $numThreads threads)"
+        $lblFileCount.Text = "Buscando... $totalCount arquivos ($($elapsed.ToString('mm\:ss'))s | $numThreadsAtual threads)"
 
         if ($allComplete) {
             # TODOS OS THREADS TERMINARAM!
