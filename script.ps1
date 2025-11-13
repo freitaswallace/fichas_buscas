@@ -1157,6 +1157,10 @@ $btnPesquisar.Add_Click({
 
         $pastasThread = $todasPastas[$inicio..($fim-1)]
 
+        # Inicializar arquivo de contagem para este thread
+        $threadCountFile = "$($script:FileCountFile).$i"
+        "0" | Out-File -FilePath $threadCountFile -Force -NoNewline -ErrorAction SilentlyContinue
+
         $powershell = [powershell]::Create()
         $powershell.RunspacePool = $runspacePool
         [void]$powershell.AddScript($scriptBlock)
