@@ -898,9 +898,19 @@ $btnClose.Add_Click({
     if ($script:timer -and $script:timer.IsEnabled) {
         $script:timer.Stop()
     }
-    if ($script:job) {
-        Remove-Job -Job $script:job -Force
-        $script:job = $null
+    # Cleanup de runspaces se estiver em execução
+    if ($script:runspaceData) {
+        foreach ($rs in $script:runspaceData.Runspaces) {
+            if ($rs.Pipe) {
+                $rs.Pipe.Stop()
+                $rs.Pipe.Dispose()
+            }
+        }
+        if ($script:runspaceData.Pool) {
+            $script:runspaceData.Pool.Close()
+            $script:runspaceData.Pool.Dispose()
+        }
+        $script:runspaceData = $null
     }
     $window.Close()
 })
@@ -912,7 +922,7 @@ $txtBusca.Add_KeyDown({
     }
 })
 
-# --- BLOCO DE BUSCA (Start-Job) ---
+# --- BLOCO DE BUSCA (Runspaces Paralelos) ---
 $btnPesquisar.Add_Click({
     if ($script:BuscaEmAndamento) {
         $lblStatus.Text = "⚠️ Aguarde... busca em andamento."
@@ -1005,17 +1015,11 @@ $btnPesquisar.Add_Click({
     $btnCloseLoading.Visibility = 'Collapsed'
     $loadingIcon.Text = "⏳"
 
-    # --- Script da Busca (ScriptBlock) ---
+    # --- Script da Busca PARALELA (ScriptBlock para Runspaces) ---
     $scriptBlock = {
-        param($CaminhoBase, $PadraoNome, $PastaIgnorar, $LogPath, $CountFilePath, $IsBuscaDocumento)
-        
-        # --- Funções auxiliares (devem ser redefinidas dentro do job) ---
-        function Write-Log-Local {
-            param([string]$Message)
-            $timestamp = Get-Date -Format "HH:mm:ss.fff"
-            Out-File -InputObject "[$timestamp] $Message" -FilePath $LogPath -Append -NoClobber -Encoding UTF8
-        }
-        
+        param($PastasParaBuscar, $PadraoNome, $PastaIgnorar, $CountFilePath, $IsBuscaDocumento, $ThreadID)
+
+        # --- Funções auxiliares (devem ser redefinidas dentro do runspace) ---
         function Remove-Acentos-Local {
             param([string]$Texto)
             $comAcentos = "ÀÁÂÃÄÅàáâãäåÈÉÊËèéêëÌÍÎÏìíîïÒÓÔÕÖòóôõöÙÚÛÜùúûüÝýÿÑñÇç"
@@ -1026,178 +1030,215 @@ $btnPesquisar.Add_Click({
             }
             return $resultado
         }
-        
-        function Get-NomeBaseNormalizado {
-            param($CaminhoArquivo)
-            $nomeBaseArquivo = [System.IO.Path]::GetFileNameWithoutExtension($CaminhoArquivo)
-            return (Remove-Acentos-Local -Texto $nomeBaseArquivo).ToUpper()
-        }
 
         function Remove-Separadores {
             param([string]$Texto)
-            # Remove underscores, espaços e hífens para comparação flexível
             return $Texto -replace '[_\s\-]', ''
         }
         # --- Fim das funções auxiliares ---
 
-        Write-Log-Local "INÍCIO DA BUSCA (Job): Padrão: $PadraoNome"
         $arquivosEncontrados = [System.Collections.Generic.List[string]]::new()
         $pastasParaIgnorar = $PastaIgnorar.TrimEnd('\').ToUpper()
 
-        # Pré-calcular padrão sem separadores (otimização - calcular uma vez só)
+        # Pré-calcular padrão sem separadores
         $padraoSemSeparadores = ""
         if (-not $IsBuscaDocumento) {
             $padraoSemSeparadores = Remove-Separadores -Texto $PadraoNome
         }
 
-        # Contador para atualizar arquivo de contagem (não atualizar a cada arquivo - otimização)
-        $contadorAtualizacao = 0
+        function Search-FilesNet {
+            param([string]$Pasta)
 
-        try {
-            function Search-FilesNet {
-                param([string]$Pasta)
+            $pastaNormalizada = $Pasta.TrimEnd('\').ToUpper()
 
-                $pastaNormalizada = $Pasta.TrimEnd('\').ToUpper()
-
-                # Só ignora pasta se $pastasParaIgnorar não estiver vazio
-                if (-not [string]::IsNullOrWhiteSpace($pastasParaIgnorar) -and $pastaNormalizada.Contains($pastasParaIgnorar)) {
-                    return
-                }
-
-                try {
-                    $files = [System.IO.Directory]::EnumerateFiles($Pasta, "*.pdf", [System.IO.SearchOption]::TopDirectoryOnly)
-                    foreach ($arquivo in $files) {
-                        $nomeArquivo = [System.IO.Path]::GetFileName($arquivo)
-                        $nomeArquivoNormalizado = (Remove-Acentos-Local -Texto $nomeArquivo).ToUpper()
-
-                        $matchEncontrado = $false
-
-                        if ($IsBuscaDocumento) {
-                            # Busca por documento (CPF/CNPJ) - termina com -[NUMERO].pdf
-                            if ($nomeArquivo -match "-$PadraoNome\.pdf$") {
-                                $matchEncontrado = $true
-                            }
-                        } else {
-                            # Busca por nome ou rua - BUSCA PARCIAL PERMISSIVA
-                            # Remove TODOS os separadores e busca substring
-                            $nomeArquivoSemSeparadores = Remove-Separadores -Texto $nomeArquivoNormalizado
-
-                            if ($nomeArquivoSemSeparadores.Contains($padraoSemSeparadores)) {
-                                $matchEncontrado = $true
-                            }
-                        }
-
-                        if ($matchEncontrado) {
-                            $arquivosEncontrados.Add($arquivo)
-                            Write-Log-Local "ENCONTRADO: $nomeArquivo"
-
-                            # Atualizar arquivo de contagem a cada 3 arquivos ou no primeiro (para UI responsiva)
-                            $contadorAtualizacao++
-                            if ($contadorAtualizacao -eq 1 -or $contadorAtualizacao -ge 3) {
-                                try {
-                                    $arquivosEncontrados.Count.ToString() | Out-File -FilePath $CountFilePath -Force -NoNewline
-                                    if ($contadorAtualizacao -ge 3) {
-                                        $contadorAtualizacao = 0
-                                    }
-                                } catch {}
-                            }
-                        }
-                    }
-
-                    $subpastas = [System.IO.Directory]::EnumerateDirectories($Pasta, "*", [System.IO.SearchOption]::TopDirectoryOnly)
-                    foreach ($subpasta in $subpastas) {
-                        Search-FilesNet -Pasta $subpasta
-                    }
-                }
-                catch {
-                    $errorMsg = $_.Exception.Message
-                    Write-Log-Local "ERRO I/O em $Pasta : $errorMsg"
-                }
+            # Só ignora pasta se $pastasParaIgnorar não estiver vazio
+            if (-not [string]::IsNullOrWhiteSpace($pastasParaIgnorar) -and $pastaNormalizada.Contains($pastasParaIgnorar)) {
+                return
             }
 
-            Search-FilesNet -Pasta $CaminhoBase
-
-            # Atualização final da contagem (garantir valor correto)
             try {
-                $arquivosEncontrados.Count.ToString() | Out-File -FilePath $CountFilePath -Force -NoNewline
-            } catch {
-                Write-Log-Local "Erro ao atualizar contagem final: $_"
+                $files = [System.IO.Directory]::EnumerateFiles($Pasta, "*.pdf", [System.IO.SearchOption]::TopDirectoryOnly)
+                foreach ($arquivo in $files) {
+                    $nomeArquivo = [System.IO.Path]::GetFileName($arquivo)
+                    $nomeArquivoNormalizado = (Remove-Acentos-Local -Texto $nomeArquivo).ToUpper()
+
+                    $matchEncontrado = $false
+
+                    if ($IsBuscaDocumento) {
+                        # Busca por documento (CPF/CNPJ)
+                        if ($nomeArquivo -match "-$PadraoNome\.pdf$") {
+                            $matchEncontrado = $true
+                        }
+                    } else {
+                        # Busca por nome ou rua
+                        $nomeArquivoSemSeparadores = Remove-Separadores -Texto $nomeArquivoNormalizado
+                        if ($nomeArquivoSemSeparadores.Contains($padraoSemSeparadores)) {
+                            $matchEncontrado = $true
+                        }
+                    }
+
+                    if ($matchEncontrado) {
+                        $arquivosEncontrados.Add($arquivo)
+                    }
+                }
+
+                $subpastas = [System.IO.Directory]::EnumerateDirectories($Pasta, "*", [System.IO.SearchOption]::TopDirectoryOnly)
+                foreach ($subpasta in $subpastas) {
+                    Search-FilesNet -Pasta $subpasta
+                }
             }
-
-            Write-Log-Local "FIM DA BUSCA (Job): Encontrados $($arquivosEncontrados.Count) arquivos."
-
-            return $arquivosEncontrados.ToArray()
-        } catch {
-            $errorMsg = $_.Exception.Message
-            Write-Log-Local "ERRO FATAL NA API (Job): $errorMsg"
-            return @()
+            catch {
+                # Ignora erros de acesso
+            }
         }
+
+        # Buscar em todas as pastas atribuídas a este thread
+        foreach ($pasta in $PastasParaBuscar) {
+            if (Test-Path $pasta) {
+                Search-FilesNet -Pasta $pasta
+            }
+        }
+
+        return $arquivosEncontrados.ToArray()
     } # --- Fim do ScriptBlock ---
-    
-    # 1. Inicia o Job em um processo separado
-    $script:job = Start-Job -ScriptBlock $scriptBlock -ArgumentList $caminhoParaBusca, $nomeBusca, $pastaParaIgnorar, $logFilePath, $script:FileCountFile, $isBuscaDocumento
-    
-    # 2. Para o timer antigo, se existir
+
+    # 1. Enumerar pastas de primeiro nível para distribuir entre threads
+    $todasPastas = @()
+    try {
+        if ($buscarApenasIndicadorReal) {
+            # Se buscar apenas INDICADOR REAL, usar ela diretamente
+            $todasPastas = @($pastaIndicadorReal)
+        } else {
+            # Enumerar subpastas do caminho base
+            $todasPastas = [System.IO.Directory]::EnumerateDirectories($caminhoParaBusca) | Where-Object {
+                if ($pastaParaIgnorar) {
+                    $_.ToUpper() -notlike "$($pastaParaIgnorar.ToUpper())*"
+                } else {
+                    $true
+                }
+            }
+        }
+    } catch {
+        $lblStatus.Text = "❌ Erro ao enumerar pastas"
+        $loadingOverlay.Visibility = 'Collapsed'
+        $script:BuscaEmAndamento = $false
+        return
+    }
+
+    if ($todasPastas.Count -eq 0) {
+        $lblStatus.Text = "⚠️ Nenhuma pasta encontrada para buscar"
+        $loadingOverlay.Visibility = 'Collapsed'
+        $script:BuscaEmAndamento = $false
+        return
+    }
+
+    # 2. Determinar número de threads (máximo 6, mínimo 2)
+    $numThreads = [Math]::Min(6, [Math]::Max(2, $todasPastas.Count))
+
+    # 3. Criar RunspacePool
+    $runspacePool = [runspacefactory]::CreateRunspacePool(1, $numThreads)
+    $runspacePool.Open()
+
+    # 4. Dividir pastas entre threads
+    $pastasPorThread = [Math]::Ceiling($todasPastas.Count / $numThreads)
+    $runspaces = @()
+
+    for ($i = 0; $i -lt $numThreads; $i++) {
+        $inicio = $i * $pastasPorThread
+        $fim = [Math]::Min($inicio + $pastasPorThread, $todasPastas.Count)
+
+        if ($inicio -ge $todasPastas.Count) { break }
+
+        $pastasThread = $todasPastas[$inicio..($fim-1)]
+
+        $powershell = [powershell]::Create()
+        $powershell.RunspacePool = $runspacePool
+        [void]$powershell.AddScript($scriptBlock)
+        [void]$powershell.AddArgument($pastasThread)
+        [void]$powershell.AddArgument($nomeBusca)
+        [void]$powershell.AddArgument($pastaParaIgnorar)
+        [void]$powershell.AddArgument($script:FileCountFile)
+        [void]$powershell.AddArgument($isBuscaDocumento)
+        [void]$powershell.AddArgument($i)
+
+        $runspaces += @{
+            Pipe = $powershell
+            Status = $powershell.BeginInvoke()
+        }
+    }
+
+    $script:runspaceData = @{
+        Pool = $runspacePool
+        Runspaces = $runspaces
+        StartTime = Get-Date
+    }
+
+    # 5. Para o timer antigo, se existir
     if ($script:timer -and $script:timer.IsEnabled) {
         $script:timer.Stop()
     }
 
-    # 3. Cria um novo timer para VERIFICAR o job
+    # 6. Cria timer para verificar progresso dos runspaces
     $script:timer = New-Object System.Windows.Threading.DispatcherTimer
-    $script:timer.Interval = [TimeSpan]::FromMilliseconds(250) # Verifica 4x por segundo
-    
-    # Adiciona o evento de verificação (Este código roda na Thread da UI)
-    $script:timer.Add_Tick({
+    $script:timer.Interval = [TimeSpan]::FromMilliseconds(250)
 
-        if (-not $script:job) {
+    $script:timer.Add_Tick({
+        if (-not $script:runspaceData) {
             $script:timer.Stop()
             return
         }
 
-        # Ler contagem em tempo real
-        try {
-            if (Test-Path $script:FileCountFile) {
-                $currentCount = Get-Content $script:FileCountFile -Raw -ErrorAction SilentlyContinue
-                if ($currentCount -and $currentCount.Trim()) {
-                    $countValue = $currentCount.Trim()
-                    $lblFileCount.Text = "Encontrando... $countValue arquivos"
-                }
+        $allComplete = $true
+        foreach ($rs in $script:runspaceData.Runspaces) {
+            if (-not $rs.Status.IsCompleted) {
+                $allComplete = $false
+                break
             }
-        } catch {
-            # Write-Warning "Erro ao ler arquivo de contagem: $_"
         }
 
-        if ($script:job.State -in @('Completed', 'Failed', 'Stopped')) {
+        # Atualizar tempo decorrido
+        $elapsed = (Get-Date) - $script:runspaceData.StartTime
+        $lblFileCount.Text = "Buscando... ($($elapsed.ToString('mm\:ss'))s | $numThreads threads)"
 
-            # 1. O JOB TERMINOU! Pare de verificar.
+        if ($allComplete) {
+            # TODOS OS THREADS TERMINARAM!
             $script:timer.Stop()
 
-            # 2. Colete os resultados do processo separado.
-            try {
-                $script:ArquivosEncontrados = Receive-Job $script:job
-            }
-            catch {
-                $script:ArquivosEncontrados = @()
-            }
-            finally {
-                # Limpa o job
-                Remove-Job $script:job -Force
-                $script:job = $null
+            # Coletar resultados de todos os runspaces
+            $todosResultados = [System.Collections.Generic.List[string]]::new()
+
+            foreach ($rs in $script:runspaceData.Runspaces) {
+                try {
+                    $resultado = $rs.Pipe.EndInvoke($rs.Status)
+                    if ($resultado) {
+                        foreach ($arquivo in $resultado) {
+                            $todosResultados.Add($arquivo)
+                        }
+                    }
+                } catch {
+                    # Ignora erros individuais
+                }
+                $rs.Pipe.Dispose()
             }
 
-            # 3. Exiba os resultados na lista
-            $logFilePath = Join-Path $script:PastaTemporaria "busca_log.txt"
+            # Cleanup
+            $script:runspaceData.Pool.Close()
+            $script:runspaceData.Pool.Dispose()
+            $script:runspaceData = $null
 
-            if ($script:ArquivosEncontrados -is [array] -and $script:ArquivosEncontrados.Count -gt 0) {
+            # Atribuir resultados
+            $script:ArquivosEncontrados = $todosResultados.ToArray()
+
+            # Exibir resultados na UI
+            if ($script:ArquivosEncontrados.Count -gt 0) {
                 # SUCESSO
                 foreach ($arquivo in $script:ArquivosEncontrados) {
                     $nome = [System.IO.Path]::GetFileName($arquivo)
                     $lstResultados.Items.Add("📄 $nome")
                 }
-                $lblStatus.Text = "✅ $($script:ArquivosEncontrados.Count) arquivo(s) encontrado(s)"
+                $lblStatus.Text = "✅ $($script:ArquivosEncontrados.Count) arquivo(s) encontrado(s) em $($elapsed.ToString('mm\:ss'))s"
                 $btnAbrirPasta.Visibility = 'Visible'
 
-                # Mudar loading para estado "concluído"
                 $loadingIcon.Text = "✅"
                 $lblLoading.Text = "Pesquisa concluída!"
                 $lblFileCount.Text = "$($script:ArquivosEncontrados.Count) arquivos encontrados"
@@ -1205,22 +1246,13 @@ $btnPesquisar.Add_Click({
                 $progressLoading.Value = 100
                 $btnCloseLoading.Visibility = 'Visible'
             } else {
-                # FALHA/VAZIO
-                $msgLog = ""
-                if (Test-Path $logFilePath) {
-                    $msgLog = Get-Content $logFilePath | Select-Object -Last 1
-                }
-                $msgDisplay = "Nenhum arquivo encontrado"
-                if ($msgLog -like "*ERRO*") {
-                    $msgDisplay = "Erro durante a busca"
-                }
-                $lstResultados.Items.Add("❌ $msgDisplay")
-                $lblStatus.Text = "⚠️ $msgDisplay"
+                # NENHUM RESULTADO
+                $lstResultados.Items.Add("❌ Nenhum arquivo encontrado")
+                $lblStatus.Text = "⚠️ Nenhum arquivo encontrado"
 
-                # Mudar loading para estado "concluído" com erro
                 $loadingIcon.Text = "❌"
                 $lblLoading.Text = "Pesquisa concluída"
-                $lblFileCount.Text = $msgDisplay
+                $lblFileCount.Text = "Nenhum arquivo encontrado"
                 $progressLoading.Visibility = 'Collapsed'
                 $btnCloseLoading.Visibility = 'Visible'
             }
@@ -1228,8 +1260,8 @@ $btnPesquisar.Add_Click({
             $script:BuscaEmAndamento = $false
         }
     })
-    
-    # 5. Inicia o timer de verificação
+
+    # 7. Inicia o timer
     $script:timer.Start()
 })
 # --- FIM DO BLOCO DE BUSCA ---
@@ -1404,7 +1436,7 @@ $btnAbrirPasta.Add_Click({
     }
 })
 
-# Cleanup ao fechar (Já modificado acima)
+# Cleanup ao fechar
 $window.Add_Closed({
     if ($script:PastaTemporaria) {
         Remove-PastaTemporaria -Caminho $script:PastaTemporaria
@@ -1412,9 +1444,19 @@ $window.Add_Closed({
     if ($script:timer -and $script:timer.IsEnabled) {
         $script:timer.Stop()
     }
-    if ($script:job) {
-        Remove-Job -Job $script:job -Force
-        $script:job = $null
+    # Cleanup de runspaces se estiver em execução
+    if ($script:runspaceData) {
+        foreach ($rs in $script:runspaceData.Runspaces) {
+            if ($rs.Pipe) {
+                $rs.Pipe.Stop()
+                $rs.Pipe.Dispose()
+            }
+        }
+        if ($script:runspaceData.Pool) {
+            $script:runspaceData.Pool.Close()
+            $script:runspaceData.Pool.Dispose()
+        }
+        $script:runspaceData = $null
     }
 })
 
