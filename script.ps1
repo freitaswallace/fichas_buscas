@@ -1108,19 +1108,42 @@ $btnPesquisar.Add_Click({
         return $arquivosEncontrados.ToArray()
     } # --- Fim do ScriptBlock ---
 
-    # 1. Enumerar pastas de primeiro nível para distribuir entre threads
+    # 1. Enumerar pastas de primeiro e segundo nível para distribuir entre threads
     $todasPastas = @()
     try {
         if ($buscarApenasIndicadorReal) {
-            # Se buscar apenas INDICADOR REAL, usar ela diretamente
+            # Se buscar apenas INDICADOR REAL, usar ela diretamente e suas subpastas
             $todasPastas = @($pastaIndicadorReal)
+            try {
+                $subpastasIndicador = [System.IO.Directory]::EnumerateDirectories($pastaIndicadorReal)
+                $todasPastas += $subpastasIndicador
+            } catch {}
         } else {
-            # Enumerar subpastas do caminho base
-            $todasPastas = [System.IO.Directory]::EnumerateDirectories($caminhoParaBusca) | Where-Object {
+            # Enumerar subpastas do caminho base (primeiro nível)
+            $pastasNivel1 = [System.IO.Directory]::EnumerateDirectories($caminhoParaBusca) | Where-Object {
                 if ($pastaParaIgnorar) {
                     $_.ToUpper() -notlike "$($pastaParaIgnorar.ToUpper())*"
                 } else {
                     $true
+                }
+            }
+
+            # Adicionar pastas de primeiro nível
+            $todasPastas += $pastasNivel1
+
+            # Para cada pasta de primeiro nível, adicionar também suas subpastas (segundo nível)
+            foreach ($pasta in $pastasNivel1) {
+                try {
+                    $subpastas = [System.IO.Directory]::EnumerateDirectories($pasta) | Where-Object {
+                        if ($pastaParaIgnorar) {
+                            $_.ToUpper() -notlike "$($pastaParaIgnorar.ToUpper())*"
+                        } else {
+                            $true
+                        }
+                    }
+                    $todasPastas += $subpastas
+                } catch {
+                    # Ignora erros de acesso a subpastas
                 }
             }
         }
@@ -1138,7 +1161,7 @@ $btnPesquisar.Add_Click({
         return
     }
 
-    # 2. Determinar número de threads (máximo 10, mínimo 2)
+    # 2. Determinar número de threads (sempre usa 10, a menos que haja menos pastas)
     $numThreads = [Math]::Min(10, [Math]::Max(2, $todasPastas.Count))
 
     # 3. Criar RunspacePool
