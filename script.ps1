@@ -1138,8 +1138,8 @@ $btnPesquisar.Add_Click({
         return
     }
 
-    # 2. Determinar número de threads (máximo 6, mínimo 2)
-    $numThreads = [Math]::Min(6, [Math]::Max(2, $todasPastas.Count))
+    # 2. Determinar número de threads (máximo 10, mínimo 2)
+    $numThreads = [Math]::Min(10, [Math]::Max(2, $todasPastas.Count))
 
     # 3. Criar RunspacePool
     $runspacePool = [runspacefactory]::CreateRunspacePool(1, $numThreads)
